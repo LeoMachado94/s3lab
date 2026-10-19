@@ -128,6 +128,8 @@ curl -X POST "http://localhost:9001/_s3lab/reset?requests=true&faults=true"
 
 Rode no hook "before each" do seu framework.
 
+> `S3LAB_ADMIN_URL` é apenas uma convenção usada pelos exemplos abaixo; o próprio s3lab a ignora.
+
 ### Go
 
 ```go
@@ -164,6 +166,8 @@ beforeEach(async () => {
   if (res.status !== 204) throw new Error(`s3lab reset failed: ${res.status}`);
 });
 ```
+
+> Em ambientes de navegador ou jsdom, o `fetch` envia um header `Origin`. Chamadas admin que não sejam GET e cujo host do `Origin` difere do `Host` da admin API recebem `403 Forbidden`; use um `Origin` de mesma origem (ou nenhum), por exemplo rodando o reset no Node.
 
 ### PHP / Laravel
 
@@ -256,7 +260,7 @@ curl -X POST localhost:9001/_s3lab/faults -H 'Content-Type: application/json' -d
 | `delayMs` | Espera antes de responder (ou antes de falhar) |
 | `probability` | `0.3` = 30% das requests que casam. Padrão `1` |
 | `count` | Para após disparar N vezes. Padrão `0` = para sempre |
-| `target` | `http` (padrão) ou `storage` (falha dentro do backend, depois da autenticação e do parsing) |
+| `target` | `http` (padrão) ou `storage` (falha dentro do backend, depois da autenticação e do parsing). Regras de storage usam nomes de operação do backend, veja a [lista](admin-api.md#injeção-de-falhas) |
 
 A resposta inclui um `id`; remova com `DELETE /_s3lab/faults/{id}` ou remova todas com `DELETE /_s3lab/faults`. Toda request atingida por uma regra mostra `faultId` no log de requests.
 
@@ -327,4 +331,4 @@ func TestUploadRetriesOnSlowDown(t *testing.T) {
 - **Isole testes paralelos** dando a cada teste o seu próprio bucket (ex.: `test-<random>`) em vez de fazer reset global, ou faça o reset com `?bucket=`.
 - **Arquivos grandes**: o `memory` mantém tudo na RAM; para testes de vários GB use `fs` em um mount `tmpfs`.
 - **Depure um teste que falha** abrindo <http://localhost:9001/#/requests> enquanto ele roda.
-- **Logs**: `S3LAB_LOG_LEVEL=debug` imprime toda request no stdout (`docker logs`).
+- **Logs**: `S3LAB_LOG_LEVEL=debug` imprime toda request no stderr (`docker logs`).

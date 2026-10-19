@@ -10,7 +10,9 @@ The admin API powers the web console and lets tests inspect and control s3lab wi
 - Timestamps: RFC 3339 with milliseconds (`2026-10-19T12:00:00.000Z`).
 - Errors: matching HTTP status plus `{"error": {"code": "NoSuchBucket", "message": "..."}}`. S3 codes are used when one fits (`NoSuchBucket`, `NoSuchKey`, `BucketNotEmpty`, `InvalidBucketName`, `BucketAlreadyOwnedByYou`), otherwise `BadRequest`, `NotFound`, `Conflict`, `InternalError`.
 - Object keys always go in the `key=` query parameter (URL-encoded), never in the path.
-- The web console is served at `/`; any path outside `/_s3lab/` falls back to `index.html`.
+- The web console is served at `/`; any `GET`/`HEAD` outside `/_s3lab/` falls back to `index.html`. Other methods there return `405 MethodNotAllowed`.
+- `403 Forbidden` is returned for a `Host` that is not allowed and for non-GET requests whose `Origin` host differs from `Host` (see [security notes](configuration.md#security-notes)).
+- `PUT` object above `S3LAB_MAX_OBJECT_SIZE` returns `413 EntityTooLarge`. `maxKeys` below 1 or non-numeric returns `400`.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -80,7 +82,7 @@ The secret key is never returned; the console shows a placeholder for it.
 }
 ```
 
-`delimiter` defaults to `/` (send `delimiter=` empty for a flat listing). `maxKeys` defaults to 200, max 1000. Pass `nextStartAfter` back as `startAfter` for the next page.
+`delimiter` defaults to `/` (send `delimiter=` empty for a flat listing). `maxKeys` defaults to 200, max 1000; below 1 or non-numeric is `400`. Pass `nextStartAfter` back as `startAfter` for the next page.
 
 `GET /_s3lab/buckets/{bucket}/object?key=a/b.jpg` → `200`
 
@@ -109,7 +111,7 @@ The secret key is never returned; the console shows a placeholder for it.
 
 ## Request log
 
-Only requests to the S3 port are recorded.
+Only requests to the S3 port are recorded, except `/minio/health/*` probes, which are not logged.
 
 `GET /_s3lab/requests?bucket=&op=&key=&status=&errors=true&since=<id>&limit=100` → `200`
 
@@ -197,7 +199,7 @@ Rule:
 | Field | Rules |
 |---|---|
 | `id` | Optional on create (generated as `f-xxxxxxxx`). Must be unique |
-| `target` | `http` (default): matched before auth, `op` is an S3 operation name. `storage`: matched inside the backend, `op` is a backend method (`PutObject`, `GetObject`, `HeadObject`, `ListObjects`, `CopyObject`, `UploadPart`, …) |
+| `target` | `http` (default): matched before auth, `op` is an S3 operation name. `storage`: matched inside the backend, `op` is a backend method (see the list below) |
 | `op`, `bucket` | Exact match; empty matches anything |
 | `key` | `path.Match` glob (`*`, `?`, `[a-z]`); `*` does not cross `/` |
 | `status` | `0` (latency only) or `400`–`599` |
@@ -206,6 +208,10 @@ Rule:
 | `probability` | In `(0, 1]`; omitted = `1` |
 | `count` | `0` = unlimited; after `count` hits the rule stops matching but stays listed |
 | `hits` | Read-only |
+
+Storage rules accept these `op` names: `ListBuckets`, `CreateBucket`, `DeleteBucket`, `HeadBucket`, `PutObject`, `GetObject`, `HeadObject`, `DeleteObject`, `CopyObject`, `SetObjectMeta`, `ListObjects`, `CreateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListParts`, `ListMultipartUploads`. There is no `ListObjectsV2` or `DeleteObjects` for storage rules (those S3 operations call the backend methods above).
+
+In responses, `target` is always present (`http` when omitted on create), `count`, `delayMs` and `probability` are omitted when unset or `0`, `hits` is always present, and `message` defaults to `Injected fault.`.
 
 A rule needs `status > 0` or `delayMs > 0`. The first matching rule (creation order) wins.
 
@@ -226,6 +232,6 @@ Rules can also be loaded at boot with `S3LAB_FAULTS` (JSON array).
 | Parameter | Effect |
 |---|---|
 | none | Delete all buckets, objects and uploads, then re-apply the seed (`S3LAB_BUCKETS`, `S3LAB_SEED_DIR`) |
-| `bucket=photos` | Empty only that bucket and re-seed it |
+| `bucket=photos` | Empty only that bucket and re-seed it. A missing bucket returns `404 NoSuchBucket`; a bucket that is not part of the seed is only emptied |
 | `requests=true` | Also clear the request log |
 | `faults=true` | Also remove all fault rules |

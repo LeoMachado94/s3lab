@@ -78,7 +78,7 @@ s3lab --data-dir ./data --buckets dev
 | Access key | `s3lab` | `S3LAB_ACCESS_KEY` |
 | Secret key | `s3labsecret` | `S3LAB_SECRET_KEY` |
 | Region | `us-east-1` | `S3LAB_REGION` |
-| Addressing | path-style (`http://host:9000/bucket/key`) | `S3LAB_DOMAIN` for virtual-host style |
+| Addressing | path-style (`http://host:9000/bucket/key`) | `S3LAB_DOMAIN` *also* enables virtual-host style (`<bucket>.<domain>`); path-style always keeps working |
 
 Most SDKs need **path-style** enabled when talking to a custom endpoint. See [client setup](clients.md).
 

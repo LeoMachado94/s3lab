@@ -128,6 +128,8 @@ curl -X POST "http://localhost:9001/_s3lab/reset?requests=true&faults=true"
 
 Run it in your framework's "before each" hook.
 
+> `S3LAB_ADMIN_URL` is just a convention used by the examples below; s3lab itself ignores it.
+
 ### Go
 
 ```go
@@ -164,6 +166,8 @@ beforeEach(async () => {
   if (res.status !== 204) throw new Error(`s3lab reset failed: ${res.status}`);
 });
 ```
+
+> In browser or jsdom environments, `fetch` sends an `Origin` header. Non-GET admin calls whose `Origin` host differs from the admin API `Host` get `403 Forbidden`, so use a same-origin `Origin` (or none), e.g. run the reset from Node.
 
 ### PHP / Laravel
 
@@ -256,7 +260,7 @@ curl -X POST localhost:9001/_s3lab/faults -H 'Content-Type: application/json' -d
 | `delayMs` | Wait before responding (or before failing) |
 | `probability` | `0.3` = 30% of matching requests. Default `1` |
 | `count` | Stop after firing N times. Default `0` = forever |
-| `target` | `http` (default) or `storage` (fails inside the backend, after auth and parsing) |
+| `target` | `http` (default) or `storage` (fails inside the backend, after auth and parsing). Storage rules use backend operation names, see the [list](admin-api.md#fault-injection) |
 
 The response includes an `id`; remove it with `DELETE /_s3lab/faults/{id}` or remove all with `DELETE /_s3lab/faults`. Every request hit by a rule shows `faultId` in the request log.
 
@@ -326,4 +330,4 @@ func TestUploadRetriesOnSlowDown(t *testing.T) {
 - **Isolate parallel tests** by giving each test its own bucket (e.g. `test-<random>`) instead of resetting globally, or reset with `?bucket=`.
 - **Big files**: `memory` keeps everything in RAM; for multi-GB tests use `fs` on a `tmpfs` mount.
 - **Debug a failing test** by opening <http://localhost:9001/#/requests> while it runs.
-- **Logs**: `S3LAB_LOG_LEVEL=debug` prints every request to stdout (`docker logs`).
+- **Logs**: `S3LAB_LOG_LEVEL=debug` prints every request to stderr (`docker logs`).

@@ -9,7 +9,6 @@ The signature covers the method, path, query, host and signed headers. Usual cau
 | Cause | Fix |
 |---|---|
 | Wrong secret key | Check `S3LAB_SECRET_KEY` (or `MINIO_ROOT_PASSWORD`) matches the client |
-| Virtual-host addressing (`bucket.localhost`) | Enable path-style: `UsePathStyle`, `forcePathStyle`, `use_path_style_endpoint`, `addressing_style: path` |
 | A proxy rewrites the `Host` header or path | Make the proxy forward `Host` unchanged and not re-encode paths |
 | URL host changed after signing | Don't rewrite the host of presigned URLs; see below |
 | Client signs a body that is altered (gzip middleware, etc.) | Sign the final body, or use `UNSIGNED-PAYLOAD` |
@@ -22,9 +21,15 @@ The access key isn't the one configured. Defaults are `s3lab` / `s3labsecret`. W
 
 Client and server clocks differ by more than 15 minutes. Common with Docker Desktop after the laptop sleeps: restart Docker Desktop or sync the VM clock.
 
-## Bucket names resolve as hostnames / `NoSuchBucket` for an existing bucket
+## Virtual-host style without `S3LAB_DOMAIN`: wrong results, `NoSuchBucket`, `InvalidBucketName`
 
-The SDK is using virtual-host style and sends `GET /key` to `my-bucket.localhost`. Enable path-style (see the [client setup](clients.md)), or configure `S3LAB_DOMAIN` and make `*.your-domain` resolve to s3lab.
+The SDK is using virtual-host style and sends `GET /key` to `my-bucket.localhost`. Without `S3LAB_DOMAIN`, s3lab ignores the `Host` header and reads the path as `bucket/key`, so `key` is taken as the bucket name. The symptom is **not** `SignatureDoesNotMatch`: you see empty or wrong results, `NoSuchBucket`, `InvalidBucketName`, or an unexpected bucket being created.
+
+Enable path-style (`UsePathStyle`, `forcePathStyle`, `use_path_style_endpoint`, `addressing_style: path`; see the [client setup](clients.md)), or configure `S3LAB_DOMAIN` and make `*.your-domain` resolve to s3lab.
+
+## `403 Forbidden` host not allowed (console)
+
+The console/admin API rejects `Host` values it doesn't recognise (DNS-rebinding protection), e.g. a custom domain behind a reverse proxy. Add the host to `S3LAB_CONSOLE_ALLOWED_HOSTS` (comma-separated). See [security notes](configuration.md#security-notes).
 
 ## Presigned URLs generated inside Docker don't open in the browser
 
@@ -89,5 +94,5 @@ Named volumes (`-v s3lab-data:/data`) work without this.
 
 ## Getting more detail
 
-- `S3LAB_LOG_LEVEL=debug` logs every request with its outcome to stdout (`docker logs s3lab`).
+- `S3LAB_LOG_LEVEL=debug` logs every request with its outcome and `requestId` to stderr (`docker logs s3lab`).
 - Every response has an `x-amz-request-id` header; search for it in the request log or the logs.

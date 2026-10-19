@@ -9,7 +9,6 @@ A assinatura cobre método, path, query, host e headers assinados. Causas comuns
 | Causa | Correção |
 |---|---|
 | Secret key errada | Confira se `S3LAB_SECRET_KEY` (ou `MINIO_ROOT_PASSWORD`) bate com a do cliente |
-| Endereçamento virtual-host (`bucket.localhost`) | Habilite o path-style: `UsePathStyle`, `forcePathStyle`, `use_path_style_endpoint`, `addressing_style: path` |
 | Um proxy reescreve o header `Host` ou o path | Faça o proxy repassar o `Host` sem alterações e não recodificar paths |
 | O host da URL mudou depois da assinatura | Não reescreva o host de URLs pré-assinadas; veja abaixo |
 | O cliente assina um body que depois é alterado (middleware de gzip etc.) | Assine o body final, ou use `UNSIGNED-PAYLOAD` |
@@ -22,9 +21,15 @@ A access key não é a configurada. Os padrões são `s3lab` / `s3labsecret`. Cu
 
 Os relógios do cliente e do servidor diferem em mais de 15 minutos. Comum no Docker Desktop depois que o notebook entra em repouso: reinicie o Docker Desktop ou sincronize o relógio da VM.
 
-## Nomes de bucket resolvidos como hostnames / `NoSuchBucket` para um bucket existente
+## Estilo virtual-host sem `S3LAB_DOMAIN`: resultados errados, `NoSuchBucket`, `InvalidBucketName`
 
-O SDK está usando o estilo virtual-host e envia `GET /key` para `my-bucket.localhost`. Habilite o path-style (veja a [configuração de clientes](clients.md)) ou configure `S3LAB_DOMAIN` e faça `*.your-domain` resolver para o s3lab.
+O SDK está usando o estilo virtual-host e envia `GET /key` para `my-bucket.localhost`. Sem `S3LAB_DOMAIN`, o s3lab ignora o header `Host` e lê o path como `bucket/key`, então `key` é tratado como o nome do bucket. O sintoma **não** é `SignatureDoesNotMatch`: você vê resultados vazios ou errados, `NoSuchBucket`, `InvalidBucketName` ou um bucket inesperado sendo criado.
+
+Habilite o path-style (`UsePathStyle`, `forcePathStyle`, `use_path_style_endpoint`, `addressing_style: path`; veja a [configuração de clientes](clients.md)) ou configure `S3LAB_DOMAIN` e faça `*.your-domain` resolver para o s3lab.
+
+## `403 Forbidden` host not allowed (console)
+
+O console/admin API rejeita valores de `Host` que não reconhece (proteção contra DNS rebinding), por exemplo um domínio próprio atrás de um reverse proxy. Adicione o host em `S3LAB_CONSOLE_ALLOWED_HOSTS` (separado por vírgula). Veja as [notas de segurança](configuration.md#notas-de-segurança).
 
 ## URLs pré-assinadas geradas dentro do Docker não abrem no navegador
 
@@ -89,5 +94,5 @@ Volumes nomeados (`-v s3lab-data:/data`) funcionam sem isso.
 
 ## Obtendo mais detalhes
 
-- `S3LAB_LOG_LEVEL=debug` loga toda request com seu resultado no stdout (`docker logs s3lab`).
+- `S3LAB_LOG_LEVEL=debug` loga toda request com seu resultado e o `requestId` no stderr (`docker logs s3lab`).
 - Toda resposta tem um header `x-amz-request-id`; procure por ele no log de requests ou nos logs.
