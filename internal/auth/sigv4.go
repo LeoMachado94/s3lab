@@ -214,11 +214,15 @@ func canonicalURI(u *url.URL) string {
 	if p == "" {
 		return "/"
 	}
-	dec, err := url.PathUnescape(p)
-	if err != nil {
-		dec = p
+	segs := strings.Split(p, "/")
+	for i, seg := range segs {
+		dec, err := url.PathUnescape(seg)
+		if err != nil {
+			dec = seg
+		}
+		segs[i] = awsEncode(dec, false)
 	}
-	return awsEncode(dec, true)
+	return strings.Join(segs, "/")
 }
 
 func canonicalQuery(raw string, skipSignature bool) string {
