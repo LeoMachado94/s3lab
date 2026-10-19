@@ -16,7 +16,7 @@ O s3lab implementa a parte da API S3 que aplicações e SDKs usam no dia a dia. 
 
 ### Recursos de objetos
 
-- `Range: bytes=a-b`, `bytes=a-`, `bytes=-n` (range único) → `206` com `Content-Range`; range não satisfazível → `416 InvalidRange`.
+- `Range: bytes=a-b`, `bytes=a-`, `bytes=-n` (range único) → `206` com `Content-Range`; range não satisfazível → `416 InvalidRange`; headers malformados ou com múltiplos ranges são ignorados (objeto inteiro, `200`), como na AWS.
 - Requests condicionais: `If-Match`, `If-None-Match`, `If-Modified-Since`, `If-Unmodified-Since` → `304` / `412`.
 - Armazenados e retornados: `Content-Type`, `Content-Encoding`, `Content-Disposition`, `Content-Language`, `Cache-Control`, `Expires`, `x-amz-meta-*`.
 - `response-content-type`, `response-content-disposition` e outros overrides `response-*` no `GetObject` (úteis com URLs pré-assinadas).

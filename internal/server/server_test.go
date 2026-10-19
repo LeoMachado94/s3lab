@@ -222,13 +222,17 @@ func (panicBackend) ListBuckets(context.Context) ([]storage.Bucket, error) { pan
 func TestPanicRecovery(t *testing.T) {
 	cfg := testConfig()
 	cfg.Anonymous = true
-	_, ts := newServer(t, cfg, WithBackend(panicBackend{}))
+	s, ts := newServer(t, cfg, WithBackend(panicBackend{}))
 	resp, err := http.Get(ts.URL + "/") //nolint:noctx // test
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 	assert.Contains(t, string(b), "<Code>InternalError</Code>")
+	entries := s.Requests().List(reqlog.Filter{})
+	require.Len(t, entries, 1)
+	assert.Equal(t, http.StatusInternalServerError, entries[0].Status)
+	assert.Equal(t, "InternalError", entries[0].ErrorCode)
 }
 
 func TestDebugLogging(t *testing.T) {

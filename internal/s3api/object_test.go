@@ -251,9 +251,9 @@ func TestGetHeadRange(t *testing.T) {
 		{"suffix larger than object", "bytes=-100", 206, "0123456789", "bytes 0-9/10", ""},
 		{"end past size", "bytes=5-100", 206, "56789", "bytes 5-9/10", ""},
 		{"start past size", "bytes=10-", 416, "", "bytes */10", "InvalidRange"},
-		{"malformed", "bytes=abc", 416, "", "bytes */10", "InvalidRange"},
-		{"multi range", "bytes=0-1,3-4", 416, "", "bytes */10", "InvalidRange"},
-		{"reversed", "bytes=5-2", 416, "", "bytes */10", "InvalidRange"},
+		{"malformed is ignored", "bytes=abc", 200, "0123456789", "", ""},
+		{"multi range is ignored", "bytes=0-1,3-4", 200, "0123456789", "", ""},
+		{"reversed is ignored", "bytes=5-2", 200, "0123456789", "", ""},
 	}
 	for _, tc := range tests {
 		for _, method := range []string{"GET", "HEAD"} {

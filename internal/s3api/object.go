@@ -208,8 +208,11 @@ func (h *Handler) objectPrepare(w http.ResponseWriter, r *http.Request, info *s3
 		writeEmpty(w, http.StatusNotModified)
 		return nil, true
 	}
-	rng, err = parseRange(r.Header.Get("Range"))
-	if err == nil && rng != nil {
+	// Like S3 (RFC 9110), a syntactically invalid or multi-range header is ignored.
+	if rng, err = parseRange(r.Header.Get("Range")); err != nil {
+		rng, err = nil, nil
+	}
+	if rng != nil {
 		_, _, err = rng.Resolve(head.Size)
 	}
 	if err != nil {

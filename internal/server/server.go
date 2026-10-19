@@ -165,6 +165,8 @@ func (s *Server) buildS3(wrapped storage.Backend) http.Handler {
 
 	var h http.Handler = api
 	h = auth.Middleware(verifier, s3err.Write)(h)
+	// Inner recoverer so the request log records the 500 of a panicking handler.
+	h = recoverer(s.log)(h)
 	h = api.CORS(h)
 	h = faults.Middleware(s.faults, s3err.Write)(h)
 	if s.log.Enabled(context.Background(), slog.LevelDebug) {
@@ -259,7 +261,7 @@ func debugLog(log *slog.Logger) func(http.Handler) http.Handler {
 }
 
 // S3Handler is the full S3 chain: recover → health aliases → s3op resolver →
-// reqlog → faults → CORS → auth → s3api.
+// reqlog → faults → CORS → recover → auth → s3api.
 func (s *Server) S3Handler() http.Handler { return s.s3 }
 
 // ConsoleHandler is the console UI + admin API (nil when disabled).
