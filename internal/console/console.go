@@ -38,6 +38,7 @@ type Info struct {
 	AccessKey          string    `json:"accessKey"`
 	VirtualHostDomain  string    `json:"virtualHostDomain"`
 	RequestLogCapacity int       `json:"requestLogCapacity"`
+	Auth               bool      `json:"auth"`
 	StartedAt          time.Time `json:"-"`
 }
 
@@ -57,8 +58,11 @@ type Deps struct {
 	MaxObjectSize int64
 	// Done, when closed, ends long-lived streams so graceful shutdown is not blocked.
 	Done <-chan struct{}
+	// Credentials, when set, require login for the admin API; nil leaves it open.
+	Credentials *Credentials
 
 	pingInterval time.Duration
+	authDelay    time.Duration
 }
 
 type server struct {
@@ -77,6 +81,7 @@ func New(d Deps) http.Handler {
 	if d.MaxObjectSize <= 0 {
 		d.MaxObjectSize = defaultMaxObjectSize
 	}
+	d.Info.Auth = d.Credentials != nil
 	s := &server{Deps: d}
 	mux := http.NewServeMux()
 
@@ -107,7 +112,17 @@ func New(d Deps) http.Handler {
 
 	mux.HandleFunc("/", s.static())
 
-	return s.recoverer(s.hostGuard(sameOrigin(mux)))
+	var h http.Handler = mux
+	if d.Credentials != nil {
+		a := newAuthenticator(*d.Credentials)
+		if d.authDelay > 0 {
+			a.delay = d.authDelay
+		}
+		mux.HandleFunc("POST /_s3lab/login", a.login)
+		mux.HandleFunc("POST /_s3lab/logout", logout)
+		h = a.middleware(mux)
+	}
+	return s.recoverer(s.hostGuard(sameOrigin(h)))
 }
 
 func (s *server) recoverer(next http.Handler) http.Handler {
@@ -165,8 +180,8 @@ func hostAllowed(hostport string, allowed map[string]struct{}) bool {
 	return false
 }
 
-// sameOrigin blocks cross-site state-changing requests (no auth, so a web page
-// must not be able to drive the admin API on localhost).
+// sameOrigin blocks cross-site state-changing requests, so a web page cannot
+// drive the admin API on localhost (with or without login).
 func sameOrigin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {

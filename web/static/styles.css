@@ -79,7 +79,7 @@ pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
 button.link { font: inherit; background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-align: left; overflow-wrap: anywhere; }
 button.link:hover { text-decoration: underline; }
 
-input[type="text"], input[type="search"], input[type="number"], select { font: inherit; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; min-width: 0; }
+input[type="text"], input[type="password"], input[type="search"], input[type="number"], select { font: inherit; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; min-width: 0; }
 input[type="checkbox"] { accent-color: var(--accent); }
 .field { display: grid; gap: 3px; min-width: 0; }
 .field .lbl { color: var(--muted); font-size: 12px; }
@@ -170,3 +170,8 @@ pre.json { background: var(--code-bg); padding: 8px; border-radius: 6px; max-hei
   .filters .field input { width: 130px; }
   .tablewrap.tall { max-height: calc(100vh - 260px); }
 }
+
+.locked .tabs, .locked .meta, .locked .actions { display: none; }
+.login { max-width: 360px; margin: 64px auto; padding: 24px; display: grid; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.login h2 { margin: 0; font-size: 16px; }
+.login .btn { justify-content: center; }

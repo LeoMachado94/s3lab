@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { h, copyText } from './dom.js';
+import { h, copyText, field } from './dom.js';
 import { app, storageGet, storageSet } from './store.js';
 import { toast, fail, dialog } from './ui.js';
 import * as bucketsView from './views/buckets.js';
@@ -32,7 +32,46 @@ function initHeader() {
     connectBtn.setAttribute('aria-expanded', String(!panel.hidden));
   });
   const resetBtn = h('button', { class: 'btn sm danger-outline', type: 'button', onclick: confirmReset }, 'Reset');
-  $('actions').append(connectBtn, resetBtn, themeBtn);
+  const logoutBtn = h('button', { class: 'btn sm', type: 'button', id: 'logout', hidden: true, onclick: logout }, 'Log out');
+  $('actions').append(connectBtn, resetBtn, themeBtn, logoutBtn);
+}
+
+async function logout() {
+  try { await api.logout(); } catch (e) { fail(e); return; }
+  location.reload();
+}
+
+let locked = false;
+
+function showLogin() {
+  if (locked) return;
+  locked = true;
+  current?.destroy?.();
+  current = null;
+  document.body.classList.add('locked');
+  $('connect').hidden = true;
+  const ak = h('input', { type: 'text', name: 'username', autocomplete: 'username', required: true, autofocus: true });
+  const sk = h('input', { type: 'password', name: 'password', autocomplete: 'current-password', required: true });
+  const msg = h('p', { class: 'hint err', role: 'alert' });
+  const submit = h('button', { class: 'btn primary', type: 'submit' }, 'Log in');
+  const form = h('form', { class: 'login', onsubmit: async (ev) => {
+    ev.preventDefault();
+    submit.disabled = true;
+    msg.textContent = '';
+    try {
+      await api.login(ak.value, sk.value);
+      location.reload();
+    } catch (e) {
+      msg.textContent = e.status === 401 ? 'Invalid access key or secret key.' : e.message;
+      submit.disabled = false;
+      sk.select();
+    }
+  } },
+  h('h2', {}, 'Log in to s3lab'),
+  h('p', { class: 'hint' }, 'Use the S3 access key and secret key (S3LAB_ACCESS_KEY / S3LAB_SECRET_KEY).'),
+  field('Access key', ak), field('Secret key', sk), msg, submit);
+  $('view').replaceChildren(form);
+  ak.focus();
 }
 
 function renderMeta(info) {
@@ -109,9 +148,12 @@ async function confirmReset() {
 async function loadInfo() {
   try {
     app.set({ info: await api.info() });
+    return true;
   } catch (e) {
     app.set({ info: null });
+    if (e.status === 401) return false;
     fail(e);
+    return true;
   }
 }
 
@@ -142,6 +184,7 @@ function route(force) {
     if (a.dataset.nav === r.parts[0]) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
+  if (locked) return;
   if (!force && current && key === currentKey && current.update) {
     current.update(r);
     return;
@@ -157,7 +200,8 @@ initHeader();
 app.subscribe(({ info }) => {
   renderMeta(info);
   renderConnect(info);
+  $('logout').hidden = !info?.auth;
 });
+window.addEventListener('s3lab:unauthorized', showLogin);
 window.addEventListener('hashchange', () => route(false));
-route(true);
-loadInfo();
+if (await loadInfo()) route(true);

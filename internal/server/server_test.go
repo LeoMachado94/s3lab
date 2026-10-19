@@ -189,7 +189,9 @@ func TestSeedAtStartup(t *testing.T) {
 	cfg.Buckets = []string{"one", "two"}
 	s, _ := newServer(t, cfg)
 	rec := httptest.NewRecorder()
-	s.ConsoleHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://localhost:9001/_s3lab/buckets", http.NoBody))
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:9001/_s3lab/buckets", http.NoBody)
+	req.SetBasicAuth(cfg.AccessKey, cfg.SecretKey)
+	s.ConsoleHandler().ServeHTTP(rec, req)
 	assert.Contains(t, rec.Body.String(), `"one"`)
 	assert.Contains(t, rec.Body.String(), `"two"`)
 
@@ -318,7 +320,8 @@ func TestRunConsoleDisabled(t *testing.T) {
 }
 
 func TestRunStopsLongRequests(t *testing.T) {
-	s, err := New(t.Context(), testConfig(), WithLogger(quietLogger()))
+	cfg := testConfig()
+	s, err := New(t.Context(), cfg, WithLogger(quietLogger()))
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -329,6 +332,7 @@ func TestRunStopsLongRequests(t *testing.T) {
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+consoleAddr+"/_s3lab/requests/stream", http.NoBody)
 	require.NoError(t, err)
+	req.SetBasicAuth(cfg.AccessKey, cfg.SecretKey)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()

@@ -10,7 +10,7 @@ docker run --rm -p 9000:9000 -p 9001:9001 -e S3LAB_BUCKETS=dev leomachado/s3lab
 ```
 
 - S3 API: `http://localhost:9000` — access key `s3lab`, secret `s3labsecret`, region `us-east-1`
-- Console: `http://localhost:9001`
+- Console: `http://localhost:9001` — log in with the same access key and secret
 
 ```bash
 aws --endpoint-url http://localhost:9000 s3 cp ./photo.jpg s3://dev/photo.jpg

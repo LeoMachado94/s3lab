@@ -1,6 +1,6 @@
 # Solução de problemas
 
-Primeira parada para qualquer problema: abra <http://localhost:9001/#/requests> (ou `curl localhost:9001/_s3lab/requests?errors=true`) e olhe o `op`, o `status` e o `errorCode` da request que falhou. Se a request nem aparece, seu cliente não está chegando ao s3lab.
+Primeira parada para qualquer problema: abra <http://localhost:9001/#/requests> (ou `curl -u s3lab:s3labsecret localhost:9001/_s3lab/requests?errors=true`) e olhe o `op`, o `status` e o `errorCode` da request que falhou. Se a request nem aparece, seu cliente não está chegando ao s3lab.
 
 ## `SignatureDoesNotMatch`
 
@@ -26,6 +26,10 @@ Os relógios do cliente e do servidor diferem em mais de 15 minutos. Comum no Do
 O SDK está usando o estilo virtual-host e envia `GET /key` para `my-bucket.localhost`. Sem `S3LAB_DOMAIN`, o s3lab ignora o header `Host` e lê o path como `bucket/key`, então `key` é tratado como o nome do bucket. O sintoma **não** é `SignatureDoesNotMatch`: você vê resultados vazios ou errados, `NoSuchBucket`, `InvalidBucketName` ou um bucket inesperado sendo criado.
 
 Habilite o path-style (`UsePathStyle`, `forcePathStyle`, `use_path_style_endpoint`, `addressing_style: path`; veja a [configuração de clientes](clients.md)) ou configure `S3LAB_DOMAIN` e faça `*.your-domain` resolver para o s3lab.
+
+## `401 Unauthorized` (console / admin API)
+
+O console e a admin API pedem as credenciais S3. No navegador, entre com `S3LAB_ACCESS_KEY` / `S3LAB_SECRET_KEY`. Em scripts, envie como HTTP Basic auth: `curl -u <access key>:<secret key> ...`. Para desligar o login num setup só em loopback, defina `S3LAB_CONSOLE_AUTH=false`. Veja [autenticação da admin API](admin-api.md#autenticação).
 
 ## `403 Forbidden` host not allowed (console)
 

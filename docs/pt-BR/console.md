@@ -1,6 +1,6 @@
 # Console web
 
-Abra <http://localhost:9001>. O console fala apenas com a [admin API](admin-api.md), então tudo o que você faz aqui também pode ser automatizado via script.
+Abra <http://localhost:9001> e entre com a access key e a secret key do S3 (`S3LAB_ACCESS_KEY` / `S3LAB_SECRET_KEY`, padrão `s3lab` / `s3labsecret`). A sessão dura 12 horas ou até o s3lab reiniciar; o botão **Log out** fica no cabeçalho. O console fala apenas com a [admin API](admin-api.md), então tudo o que você faz aqui também pode ser automatizado via script.
 
 ## Cabeçalho
 

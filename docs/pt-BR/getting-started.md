@@ -99,15 +99,15 @@ aws s3 presign s3://photos/2026/cat.jpg --expires-in 300
 Com `curl` puro (sem assinatura: use a admin API):
 
 ```bash
-curl -X POST localhost:9001/_s3lab/buckets -H 'Content-Type: application/json' -d '{"name":"photos"}'
-curl -X PUT "localhost:9001/_s3lab/buckets/photos/object?key=hello.txt" \
+curl -u s3lab:s3labsecret -X POST localhost:9001/_s3lab/buckets -H 'Content-Type: application/json' -d '{"name":"photos"}'
+curl -u s3lab:s3labsecret -X PUT "localhost:9001/_s3lab/buckets/photos/object?key=hello.txt" \
   -H 'Content-Type: text/plain' --data-binary 'hello'
-curl "localhost:9001/_s3lab/buckets/photos/objects"
+curl -u s3lab:s3labsecret "localhost:9001/_s3lab/buckets/photos/objects"
 ```
 
 ## 4. Abra o console
 
-Acesse <http://localhost:9001>: navegue pelos buckets, envie arquivos e abra a aba **Requests** para ver ao vivo cada chamada S3 que seu app faz. Veja [console](console.md).
+Acesse <http://localhost:9001> e entre com a access key e a secret key (`s3lab` / `s3labsecret` por padrão): navegue pelos buckets, envie arquivos e abra a aba **Requests** para ver ao vivo cada chamada S3 que seu app faz. Veja [console](console.md).
 
 ## 5. Próximos passos
 

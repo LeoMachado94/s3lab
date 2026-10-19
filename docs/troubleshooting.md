@@ -1,6 +1,6 @@
 # Troubleshooting
 
-First stop for any problem: open <http://localhost:9001/#/requests> (or `curl localhost:9001/_s3lab/requests?errors=true`) and look at the failing request's `op`, `status` and `errorCode`. If the request isn't there at all, your client is not reaching s3lab.
+First stop for any problem: open <http://localhost:9001/#/requests> (or `curl -u s3lab:s3labsecret localhost:9001/_s3lab/requests?errors=true`) and look at the failing request's `op`, `status` and `errorCode`. If the request isn't there at all, your client is not reaching s3lab.
 
 ## `SignatureDoesNotMatch`
 
@@ -26,6 +26,10 @@ Client and server clocks differ by more than 15 minutes. Common with Docker Desk
 The SDK is using virtual-host style and sends `GET /key` to `my-bucket.localhost`. Without `S3LAB_DOMAIN`, s3lab ignores the `Host` header and reads the path as `bucket/key`, so `key` is taken as the bucket name. The symptom is **not** `SignatureDoesNotMatch`: you see empty or wrong results, `NoSuchBucket`, `InvalidBucketName`, or an unexpected bucket being created.
 
 Enable path-style (`UsePathStyle`, `forcePathStyle`, `use_path_style_endpoint`, `addressing_style: path`; see the [client setup](clients.md)), or configure `S3LAB_DOMAIN` and make `*.your-domain` resolve to s3lab.
+
+## `401 Unauthorized` (console / admin API)
+
+The console and admin API need the S3 credentials. In the browser, log in with `S3LAB_ACCESS_KEY` / `S3LAB_SECRET_KEY`. In scripts, send them as HTTP Basic auth: `curl -u <access key>:<secret key> ...`. To turn login off for a loopback-only setup, set `S3LAB_CONSOLE_AUTH=false`. See [admin API authentication](admin-api.md#authentication).
 
 ## `403 Forbidden` host not allowed (console)
 

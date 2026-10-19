@@ -30,6 +30,7 @@ async function req(method, path, { params, body, signal } = {}) {
     if (e.name === 'AbortError') throw e;
     throw new ApiError(0, 'NetworkError', 'Cannot reach the s3lab console API');
   }
+  if (res.status === 401 && path !== '/login') window.dispatchEvent(new Event('s3lab:unauthorized'));
   if (!res.ok) {
     let code = 'HTTP' + res.status;
     let message = res.statusText;
@@ -48,6 +49,8 @@ const b = (name) => `/buckets/${encodeURIComponent(name)}`;
 
 export const api = {
   info: (signal) => req('GET', '/info', { signal }),
+  login: (accessKey, secretKey) => req('POST', '/login', { body: { accessKey, secretKey } }),
+  logout: () => req('POST', '/logout'),
   listBuckets: (signal) => req('GET', '/buckets', { signal }),
   createBucket: (name) => req('POST', '/buckets', { body: { name } }),
   deleteBucket: (name, force) => req('DELETE', b(name), { params: { force: force ? 'true' : '' } }),
@@ -74,6 +77,7 @@ export function uploadObject(bucket, key, file, onProgress) {
     xhr.upload.addEventListener('progress', (e) => e.lengthComputable && onProgress(e.loaded / e.total));
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      if (xhr.status === 401) window.dispatchEvent(new Event('s3lab:unauthorized'));
       let err = new ApiError(xhr.status, 'HTTP' + xhr.status, xhr.statusText);
       try {
         const j = JSON.parse(xhr.responseText);

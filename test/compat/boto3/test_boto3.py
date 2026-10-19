@@ -25,7 +25,8 @@ def step(msg):
 
 
 def admin(method, path, **kw):
-    r = requests.request(method, ADMIN + path, timeout=10, **kw)
+    auth = (os.environ["AWS_ACCESS_KEY_ID"], os.environ["AWS_SECRET_ACCESS_KEY"])
+    r = requests.request(method, ADMIN + path, timeout=10, auth=auth, **kw)
     r.raise_for_status()
     return r
 

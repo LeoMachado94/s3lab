@@ -15,6 +15,7 @@ s3lab version
 | `S3LAB_ADDR` | `--addr` | `:9000` | Endereço de escuta da API S3 |
 | `S3LAB_CONSOLE_ADDR` | `--console-addr` | `:9001` | Endereço de escuta do console (UI) + admin API |
 | `S3LAB_CONSOLE_ENABLED` | `--console` (`--console=false`) | `true` | Use `false` para desabilitar totalmente o console e a admin API |
+| `S3LAB_CONSOLE_AUTH` | `--console-auth` | `true` | Exige login (access key + secret key do S3) no console e na admin API. `false` deixa os dois abertos. Veja [notas de segurança](#notas-de-segurança) |
 | `S3LAB_CONSOLE_ALLOWED_HOSTS` | `--console-allowed-hosts` | — | `Host` extras (separados por vírgula) aceitos pelo console/admin API (veja [notas de segurança](#notas-de-segurança)) |
 | `S3LAB_ACCESS_KEY` | `--access-key` | `s3lab` | Access key com a qual os clientes devem assinar |
 | `S3LAB_SECRET_KEY` | `--secret-key` | `s3labsecret` | Secret key |
@@ -97,7 +98,8 @@ Regras do seed:
 
 O s3lab é uma ferramenta de desenvolvimento:
 
-- O console/admin API (porta 9001) **não tem autenticação**. Qualquer pessoa que alcance essa porta pode ler e apagar dados. Não a exponha publicamente; em ambientes compartilhados, defina `S3LAB_CONSOLE_ENABLED=false` ou faça o bind em localhost.
+- O console/admin API (porta 9001) **exige login** com a access key e a secret key do S3 (HTTP Basic auth ou o cookie de sessão do console). Troque os padrões (`s3lab` / `s3labsecret`) sempre que outras pessoas alcançarem a porta. Continua sendo ferramenta de dev: HTTP puro, sem rate limit além de 1 s de espera por tentativa errada. Não exponha publicamente; em ambientes compartilhados, faça também o bind em localhost ou defina `S3LAB_CONSOLE_ENABLED=false`.
+- `S3LAB_CONSOLE_AUTH=false` remove o login. Use só quando a porta estiver publicada apenas no loopback.
 - O bind em localhost (`S3LAB_CONSOLE_ADDR=127.0.0.1:9001`) vale para o binário puro. No Docker, faça o bind normal dentro do container e publique a porta apenas no loopback: `-p 127.0.0.1:9001:9001`.
 - **Allowlist de Host (proteção contra DNS rebinding).** O console/admin API só responde a valores de `Host` que sejam IPs literais, `localhost` / `*.localhost`, nomes de um único label (nomes de serviço do Docker, como `s3`), `*.local`, `*.test`, `*.internal`, ou listados em `S3LAB_CONSOLE_ALLOWED_HOSTS`. Qualquer outro recebe `403 Forbidden`.
 - **Regra de cross-origin.** Requests que não sejam GET e tragam um header `Origin` cujo host difere do `Host` recebem `403 Forbidden`.

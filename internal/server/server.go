@@ -118,7 +118,12 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*Server, error
 	s.s3 = s.buildS3(faults.WrapBackend(raw, s.faults))
 
 	if cfg.ConsoleEnabled {
+		var creds *console.Credentials
+		if cfg.ConsoleAuth {
+			creds = &console.Credentials{AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey}
+		}
 		s.console = console.New(console.Deps{
+			Credentials:   creds,
 			Backend:       raw,
 			Requests:      s.requests,
 			Faults:        s.faults,

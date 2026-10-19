@@ -29,6 +29,7 @@ type Config struct {
 	Addr           string
 	ConsoleAddr    string
 	ConsoleEnabled bool
+	ConsoleAuth    bool
 	AccessKey      string
 	SecretKey      string
 	Region         string
@@ -58,6 +59,7 @@ func Default() Config {
 		Addr:           ":9000",
 		ConsoleAddr:    ":9001",
 		ConsoleEnabled: true,
+		ConsoleAuth:    true,
 		AccessKey:      "s3lab",
 		SecretKey:      "s3labsecret",
 		Region:         "us-east-1",
@@ -111,6 +113,7 @@ func settings() []setting {
 		strSetting("S3LAB_ADDR", "addr", func(c *Config) *string { return &c.Addr }),
 		strSetting("S3LAB_CONSOLE_ADDR", "console-addr", func(c *Config) *string { return &c.ConsoleAddr }),
 		boolSetting("S3LAB_CONSOLE_ENABLED", "console", func(c *Config) *bool { return &c.ConsoleEnabled }),
+		boolSetting("S3LAB_CONSOLE_AUTH", "console-auth", func(c *Config) *bool { return &c.ConsoleAuth }),
 		strSetting("S3LAB_ACCESS_KEY", "access-key", func(c *Config) *string { return &c.AccessKey }),
 		strSetting("S3LAB_SECRET_KEY", "secret-key", func(c *Config) *string { return &c.SecretKey }),
 		strSetting("S3LAB_REGION", "region", func(c *Config) *string { return &c.Region }),
@@ -375,6 +378,9 @@ func (c *Config) validate() error {
 	}
 	if c.ConsoleEnabled && strings.TrimSpace(c.ConsoleAddr) == "" {
 		return errors.New("S3LAB_CONSOLE_ADDR/--console-addr: must not be empty")
+	}
+	if c.ConsoleEnabled && c.ConsoleAuth && (c.AccessKey == "" || c.SecretKey == "") {
+		return errors.New("S3LAB_CONSOLE_AUTH: console login needs S3LAB_ACCESS_KEY and S3LAB_SECRET_KEY (or set S3LAB_CONSOLE_AUTH=false)")
 	}
 	if c.Storage == StorageFS && strings.TrimSpace(c.DataDir) == "" {
 		return errors.New("S3LAB_DATA_DIR/--data-dir: must not be empty with storage fs")

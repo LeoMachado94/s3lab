@@ -75,6 +75,7 @@ func TestLoadEnv(t *testing.T) {
 		"S3LAB_REQUEST_LOG_SIZE": "5",
 		"S3LAB_LOG_LEVEL":        "DEBUG",
 		"S3LAB_LOG_FORMAT":       "json",
+		"S3LAB_CONSOLE_AUTH":     "false",
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, Config{
@@ -220,9 +221,21 @@ func TestExtraPositionalWarns(t *testing.T) {
 }
 
 func TestAnonymousAllowsEmptyKeys(t *testing.T) {
-	cfg, err := LoadWithLookup([]string{"--anonymous", "--access-key=", "--secret-key="}, lookupFrom(nil))
+	cfg, err := LoadWithLookup([]string{"--anonymous", "--access-key=", "--secret-key=", "--console-auth=false"}, lookupFrom(nil))
 	require.NoError(t, err)
 	assert.True(t, cfg.Anonymous)
+}
+
+func TestConsoleAuthNeedsKeys(t *testing.T) {
+	cfg, err := LoadWithLookup(nil, lookupFrom(nil))
+	require.NoError(t, err)
+	assert.True(t, cfg.ConsoleAuth)
+
+	_, err = LoadWithLookup([]string{"--anonymous", "--access-key=", "--secret-key="}, lookupFrom(nil))
+	require.ErrorContains(t, err, "S3LAB_CONSOLE_AUTH")
+
+	_, err = LoadWithLookup([]string{"--anonymous", "--access-key=", "--console=false"}, lookupFrom(nil))
+	require.NoError(t, err)
 }
 
 func TestLogSizeCap(t *testing.T) {

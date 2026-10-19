@@ -2,7 +2,18 @@
 
 The admin API powers the web console and lets tests inspect and control s3lab without S3 signing. It is served on the console port (default `9001`), separate from the S3 port (`9000`).
 
-> **No authentication.** Meant for local and CI use. Disable with `S3LAB_CONSOLE_ENABLED=false` or bind to localhost when sharing a network. See [configuration](configuration.md#security-notes).
+> **Login required.** Every endpoint except `/_s3lab/health`, `/_s3lab/login` and `/_s3lab/logout` needs the S3 credentials (`S3LAB_ACCESS_KEY` / `S3LAB_SECRET_KEY`). See [authentication](#authentication).
+
+## Authentication
+
+Two ways to authenticate, both with the S3 access key and secret key:
+
+- **HTTP Basic auth**, for scripts and tests: `curl -u s3lab:s3labsecret localhost:9001/_s3lab/requests`. Go, Python `requests` and Guzzle also accept the credentials inside the URL (`http://s3lab:s3labsecret@localhost:9001`).
+- **Session cookie**, used by the web console: `POST /_s3lab/login` with `{"accessKey": "...", "secretKey": "..."}` returns `204` and sets an `HttpOnly`, `SameSite=Strict` cookie valid for 12 hours. `POST /_s3lab/logout` clears it. Sessions end when s3lab restarts.
+
+Missing or wrong credentials return `401 Unauthorized` (after a 1 s delay, to slow down guessing). No `WWW-Authenticate` header is sent, so browsers don't show a native login popup.
+
+Set `S3LAB_CONSOLE_AUTH=false` to turn login off (the pre-0.2 behaviour); `/_s3lab/info` reports `"auth": false` then.
 
 ## Conventions
 
@@ -18,6 +29,8 @@ The admin API powers the web console and lets tests inspect and control s3lab wi
 |---|---|---|
 | GET | [`/_s3lab/health`](#health-and-info) | Liveness |
 | GET | [`/_s3lab/info`](#health-and-info) | Version, ports, storage, access key |
+| POST | [`/_s3lab/login`](#authentication) | Console login (session cookie) |
+| POST | [`/_s3lab/logout`](#authentication) | End the session |
 | GET, POST | [`/_s3lab/buckets`](#buckets) | List / create buckets |
 | DELETE | [`/_s3lab/buckets/{bucket}`](#buckets) | Delete bucket (`?force=true`) |
 | GET, DELETE | [`/_s3lab/buckets/{bucket}/objects`](#objects) | List / delete by prefix |
@@ -49,6 +62,7 @@ The admin API powers the web console and lets tests inspect and control s3lab wi
   "accessKey": "s3lab",
   "virtualHostDomain": "",
   "requestLogCapacity": 1000,
+  "auth": true,
   "startedAt": "2026-10-19T12:00:00.000Z"
 }
 ```
@@ -172,7 +186,7 @@ data: {...entry...}
 A `: ping` comment is sent every 15 s.
 
 ```bash
-curl -N localhost:9001/_s3lab/requests/stream?errors=true
+curl -u s3lab:s3labsecret -N localhost:9001/_s3lab/requests/stream?errors=true
 ```
 
 ## Fault injection

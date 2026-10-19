@@ -116,7 +116,7 @@ endpoint = f"http://{s3lab.get_container_host_ip()}:{s3lab.get_exposed_port(9000
 ## Reset between tests
 
 ```bash
-curl -X POST "http://localhost:9001/_s3lab/reset?requests=true&faults=true"
+curl -u s3lab:s3labsecret -X POST "http://localhost:9001/_s3lab/reset?requests=true&faults=true"
 ```
 
 | Call | Effect |
@@ -128,7 +128,7 @@ curl -X POST "http://localhost:9001/_s3lab/reset?requests=true&faults=true"
 
 Run it in your framework's "before each" hook.
 
-> `S3LAB_ADMIN_URL` is just a convention used by the examples below; s3lab itself ignores it.
+> `S3LAB_ADMIN_URL` is just a convention used by the examples below; s3lab itself ignores it. The admin API needs the S3 credentials: put them in the URL (`http://s3lab:s3labsecret@localhost:9001`) and Go, Python `requests` and Guzzle send them as HTTP Basic auth. See [authentication](admin-api.md#authentication).
 
 ### Go
 
@@ -148,7 +148,7 @@ func resetS3(t *testing.T) {
 ```python
 import os, pytest, requests
 
-ADMIN = os.environ.get("S3LAB_ADMIN_URL", "http://localhost:9001")
+ADMIN = os.environ.get("S3LAB_ADMIN_URL", "http://s3lab:s3labsecret@localhost:9001")
 
 @pytest.fixture(autouse=True)
 def clean_s3():
@@ -160,9 +160,11 @@ def clean_s3():
 
 ```js
 const ADMIN = process.env.S3LAB_ADMIN_URL ?? "http://localhost:9001";
+// fetch rejects credentials inside the URL, so send them as a header.
+const AUTH = { Authorization: `Basic ${btoa("s3lab:s3labsecret")}` };
 
 beforeEach(async () => {
-  const res = await fetch(`${ADMIN}/_s3lab/reset?requests=true&faults=true`, { method: "POST" });
+  const res = await fetch(`${ADMIN}/_s3lab/reset?requests=true&faults=true`, { method: "POST", headers: AUTH });
   if (res.status !== 204) throw new Error(`s3lab reset failed: ${res.status}`);
 });
 ```
@@ -177,7 +179,7 @@ trait ResetsS3lab
 {
     protected function setUpResetsS3lab(): void
     {
-        Http::post(env('S3LAB_ADMIN_URL', 'http://s3:9001').'/_s3lab/reset?requests=true&faults=true')->throw();
+        Http::post(env('S3LAB_ADMIN_URL', 'http://s3lab:s3labsecret@s3:9001').'/_s3lab/reset?requests=true&faults=true')->throw();
     }
 }
 ```
@@ -191,7 +193,7 @@ Call `$this->setUpResetsS3lab()` in `setUp()`. Unlike `Storage::fake()`, this ex
 The request log records every call to the S3 port:
 
 ```bash
-curl "http://localhost:9001/_s3lab/requests?bucket=uploads&op=PutObject"
+curl -u s3lab:s3labsecret "http://localhost:9001/_s3lab/requests?bucket=uploads&op=PutObject"
 ```
 
 ```json
@@ -242,7 +244,7 @@ new_calls = s3_requests(since=last)
 A fault rule matches requests by operation, bucket and key glob, then returns an S3 error and/or adds latency.
 
 ```bash
-curl -X POST localhost:9001/_s3lab/faults -H 'Content-Type: application/json' -d '{
+curl -u s3lab:s3labsecret -X POST localhost:9001/_s3lab/faults -H 'Content-Type: application/json' -d '{
   "op": "PutObject",
   "bucket": "uploads",
   "status": 503,

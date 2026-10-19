@@ -15,6 +15,7 @@ s3lab version
 | `S3LAB_ADDR` | `--addr` | `:9000` | S3 API listen address |
 | `S3LAB_CONSOLE_ADDR` | `--console-addr` | `:9001` | Console UI + admin API listen address |
 | `S3LAB_CONSOLE_ENABLED` | `--console` (`--console=false`) | `true` | Set `false` to disable the console and admin API entirely |
+| `S3LAB_CONSOLE_AUTH` | `--console-auth` | `true` | Require login (S3 access key + secret key) for the console and admin API. `false` leaves them open. See [security notes](#security-notes) |
 | `S3LAB_CONSOLE_ALLOWED_HOSTS` | `--console-allowed-hosts` | — | Comma-separated extra `Host` values the console/admin API accepts (see [security notes](#security-notes)) |
 | `S3LAB_ACCESS_KEY` | `--access-key` | `s3lab` | Access key clients must sign with |
 | `S3LAB_SECRET_KEY` | `--secret-key` | `s3labsecret` | Secret key |
@@ -97,7 +98,8 @@ Seeding rules:
 
 s3lab is a development tool:
 
-- The console/admin API (port 9001) has **no authentication**. Anyone who reaches it can read and delete data. Don't expose it publicly; in shared environments set `S3LAB_CONSOLE_ENABLED=false` or bind it to localhost.
+- The console/admin API (port 9001) **requires login** with the S3 access key and secret key (HTTP Basic auth or the console's session cookie). Change the defaults (`s3lab` / `s3labsecret`) whenever the port is reachable by others. It is still a dev tool: plain HTTP, no rate limiting beyond a 1 s delay per failed attempt. Don't expose it publicly; in shared environments also bind it to localhost or set `S3LAB_CONSOLE_ENABLED=false`.
+- `S3LAB_CONSOLE_AUTH=false` removes the login. Only do that when the port is published on loopback only.
 - Binding to localhost (`S3LAB_CONSOLE_ADDR=127.0.0.1:9001`) is for the bare binary. In Docker, bind inside the container as usual and publish the port on loopback only: `-p 127.0.0.1:9001:9001`.
 - **Host allowlist (DNS-rebinding protection).** The console/admin API only answers `Host` values that are IP literals, `localhost` / `*.localhost`, single-label names (Docker service names such as `s3`), `*.local`, `*.test`, `*.internal`, or listed in `S3LAB_CONSOLE_ALLOWED_HOSTS`. Anything else gets `403 Forbidden`.
 - **Cross-origin rule.** Non-GET requests carrying an `Origin` header whose host differs from `Host` get `403 Forbidden`.

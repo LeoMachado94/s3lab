@@ -112,6 +112,7 @@ func (h *harness) adminJSON(method, path string, body any, out any) int {
 	if rd != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req.SetBasicAuth(testAccessKey, testSecretKey)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(h.t, err)
 	defer resp.Body.Close()
