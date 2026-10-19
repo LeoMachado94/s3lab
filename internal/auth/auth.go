@@ -2,8 +2,15 @@
 package auth
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"hash"
+	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/LeoMachado94/s3lab/internal/s3op"
@@ -85,8 +92,133 @@ func NewVerifier(creds CredentialStore, region string, opts ...Option) *Verifier
 // decodes aws-chunked payloads or verifies x-amz-content-sha256 at EOF (the
 // reader then returns ErrContentSHA256Mismatch).
 func (v *Verifier) Verify(r *http.Request) (Result, error) {
-	return Result{}, errors.New("auth: not implemented")
+	authz := r.Header.Get("Authorization")
+	q := r.URL.Query()
+	presigned := q.Has("X-Amz-Algorithm") || q.Has("X-Amz-Signature") || q.Has("X-Amz-Credential")
+	switch {
+	case authz != "" && presigned:
+		return Result{}, ErrQueryMalformed
+	case authz == "" && !presigned:
+		if v.allowAnonymous {
+			return Result{Method: s3op.AuthNone}, nil
+		}
+		return Result{}, ErrAccessDenied
+	}
+
+	var sr *sigRequest
+	var err error
+	if presigned {
+		sr, err = parsePresigned(q)
+	} else {
+		sr, err = parseAuthorization(authz)
+	}
+	if err != nil {
+		return Result{}, err
+	}
+
+	secret, ok := v.creds.Lookup(sr.cred.accessKey)
+	if !ok {
+		return Result{}, ErrInvalidAccessKeyID
+	}
+	t, err := v.requestTime(r, sr)
+	if err != nil {
+		return Result{}, err
+	}
+
+	payloadHash := r.Header.Get("X-Amz-Content-Sha256")
+	if payloadHash == "" {
+		if !presigned {
+			return Result{}, ErrHeaderMalformed
+		}
+		payloadHash = unsignedPayload
+	}
+
+	amzDate := t.Format(isoFormat)
+	sts := algorithm + "\n" + amzDate + "\n" + sr.cred.scope() + "\n" +
+		hexSHA256([]byte(canonicalRequest(r, sr, payloadHash)))
+	key := signingKey(secret, sr.cred)
+	want := hex.EncodeToString(hmacSHA256(key, sts))
+	if !hmac.Equal([]byte(want), []byte(sr.signature)) {
+		return Result{}, ErrSignatureDoesNotMatch
+	}
+
+	if err := wrapBody(r, payloadHash, chunkOpts{
+		key: key, amzDate: amzDate, scope: sr.cred.scope(), seedSig: want, declared: -1,
+	}); err != nil {
+		return Result{}, err
+	}
+
+	method := s3op.AuthHeader
+	if presigned {
+		method = s3op.AuthPresigned
+	}
+	return Result{AccessKey: sr.cred.accessKey, Method: method}, nil
 }
+
+// wrapBody installs the payload verification or aws-chunked decoding reader.
+func wrapBody(r *http.Request, payloadHash string, opts chunkOpts) error {
+	switch payloadHash {
+	case unsignedPayload:
+		return nil
+	case streamUnsignedTrailer, streamSigned, streamSignedTrailer:
+		opts.signed = payloadHash != streamUnsignedTrailer
+		opts.declared = -1
+		if s := r.Header.Get("X-Amz-Decoded-Content-Length"); s != "" {
+			n, err := strconv.ParseInt(s, 10, 64)
+			if err != nil || n < 0 {
+				return ErrHeaderMalformed
+			}
+			opts.declared = n
+		}
+		r.Body = newChunkReader(r.Body, opts)
+		r.ContentLength = opts.declared
+		return nil
+	}
+	want, err := hex.DecodeString(payloadHash)
+	if err != nil || len(want) != sha256.Size {
+		return ErrHeaderMalformed
+	}
+	if r.Body == nil || r.Body == http.NoBody {
+		if !bytes.Equal(want, emptyDigest[:]) {
+			return ErrContentSHA256Mismatch
+		}
+		return nil
+	}
+	r.Body = &hashReader{rc: r.Body, h: sha256.New(), want: want, remain: r.ContentLength}
+	return nil
+}
+
+var emptyDigest = sha256.Sum256(nil)
+
+// hashReader reports ErrContentSHA256Mismatch once the whole body was read
+// (at EOF, or when the declared Content-Length has been consumed).
+type hashReader struct {
+	rc     io.ReadCloser
+	h      hash.Hash
+	want   []byte
+	remain int64
+	err    error
+}
+
+func (h *hashReader) Read(p []byte) (int, error) {
+	if h.err != nil {
+		return 0, h.err
+	}
+	n, err := h.rc.Read(p)
+	h.h.Write(p[:n])
+	if h.remain >= 0 {
+		h.remain -= int64(n)
+	}
+	if errors.Is(err, io.EOF) || (err == nil && h.remain == 0) {
+		if !hmac.Equal(h.h.Sum(nil), h.want) {
+			h.err = ErrContentSHA256Mismatch
+			return n, h.err
+		}
+	}
+	return n, err
+}
+
+func (h *hashReader) Close() error { return h.rc.Close() }
 
 // Middleware verifies every request except CORS preflights, records the
 // outcome in s3op.Info and calls onErr on failure.
