@@ -1,0 +1,72 @@
+name: s3lab-compat
+
+x-client-env: &client-env
+  AWS_ACCESS_KEY_ID: s3lab
+  AWS_SECRET_ACCESS_KEY: s3labsecret
+  AWS_REGION: us-east-1
+  AWS_ENDPOINT_URL: http://s3lab:9000
+  S3_HOST: s3lab:9000
+  S3LAB_ADMIN_URL: http://s3lab:9001
+  BUCKET: compat
+
+services:
+  s3lab:
+    build:
+      context: ../..
+    environment:
+      S3LAB_STORAGE: memory
+      S3LAB_BUCKETS: compat,compat-boto3,compat-php
+      S3LAB_ACCESS_KEY: s3lab
+      S3LAB_SECRET_KEY: s3labsecret
+
+  awscli:
+    image: amazon/aws-cli:latest
+    entrypoint: ["/bin/bash", "/scripts/awscli.sh"]
+    environment: *client-env
+    volumes:
+      - ./awscli:/scripts:ro
+    depends_on:
+      s3lab:
+        condition: service_healthy
+
+  boto3:
+    image: python:3.13-slim
+    command: ["sh", "-c", "pip install --quiet --no-cache-dir --disable-pip-version-check boto3 requests && python /scripts/test_boto3.py"]
+    environment:
+      <<: *client-env
+      BUCKET: compat-boto3
+    volumes:
+      - ./boto3:/scripts:ro
+    depends_on:
+      s3lab:
+        condition: service_healthy
+
+  php:
+    image: composer:2
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /work && cd /work
+        composer init --no-interaction --name=compat/flysystem >/dev/null
+        composer require --no-interaction --quiet aws/aws-sdk-php "league/flysystem-aws-s3-v3:^3.0"
+        php /scripts/flysystem.php
+    environment:
+      <<: *client-env
+      BUCKET: compat-php
+    volumes:
+      - ./php:/scripts:ro
+    depends_on:
+      s3lab:
+        condition: service_healthy
+
+  runner:
+    image: alpine:3
+    command: ["echo", "compat OK: aws-cli, boto3 and flysystem passed"]
+    depends_on:
+      awscli:
+        condition: service_completed_successfully
+      boto3:
+        condition: service_completed_successfully
+      php:
+        condition: service_completed_successfully

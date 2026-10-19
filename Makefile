@@ -40,7 +40,8 @@ docker-build:
 	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
 
 compat:
-	docker compose -f test/compat/compose.yaml up --build --abort-on-container-failure --exit-code-from runner
+	docker compose -f test/compat/compose.yaml up --build --abort-on-container-failure --exit-code-from runner; \
+	rc=$$?; docker compose -f test/compat/compose.yaml down -v; exit $$rc
 
 run:
 	docker compose up --build s3lab
