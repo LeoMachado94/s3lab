@@ -1,0 +1,37 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: standard
+  enable:
+    - gosec
+    - revive
+    - misspell
+    - bodyclose
+    - errorlint
+    - unconvert
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+    gosec:
+      excludes:
+        - G104
+        - G304 # paths are sanitised by the fs backend
+        - G401 # md5 is mandated by the S3 ETag / Content-MD5 protocol
+        - G501
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, errcheck, bodyclose]
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/LeoMachado94/s3lab

@@ -1,0 +1,28 @@
+services:
+  s3lab:
+    build: .
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      S3LAB_ACCESS_KEY: s3lab
+      S3LAB_SECRET_KEY: s3labsecret
+      S3LAB_BUCKETS: dev
+    volumes:
+      - s3lab-data:/data
+
+  dev:
+    image: golang:1.25
+    working_dir: /src
+    volumes:
+      - .:/src
+      - s3lab-gomod:/go/pkg/mod
+      - s3lab-gocache:/root/.cache/go-build
+    profiles: [dev]
+
+volumes:
+  s3lab-data:
+  s3lab-gomod:
+    name: s3lab-gomod
+  s3lab-gocache:
+    name: s3lab-gocache
