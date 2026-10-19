@@ -1,22 +1,42 @@
-# s3lab — API admin (console)
+# Admin API
 
-Fonte de verdade para `internal/console` (servidor) e `web/` (UI). Servida na porta do console (padrão `9001`), separada da porta S3 (`9000`). Sem autenticação: pensada para ambiente local/CI.
+The admin API powers the web console and lets tests inspect and control s3lab without S3 signing. It is served on the console port (default `9001`), separate from the S3 port (`9000`).
 
-Convenções:
-- JSON UTF-8, `Content-Type: application/json`.
-- Datas em RFC 3339 com milissegundos (`2026-10-19T12:00:00.000Z`).
-- Erros: status HTTP adequado + corpo `{"error": {"code": "NoSuchBucket", "message": "..."}}`. Códigos S3 quando houver equivalente (`NoSuchBucket`, `NoSuchKey`, `BucketNotEmpty`, `InvalidBucketName`, `BucketAlreadyOwnedByYou`), senão `BadRequest`, `NotFound`, `InternalError`.
-- Chaves de objeto vão sempre em query `key=` (URL-encoded), nunca no path.
-- UI estática servida em `/` (qualquer rota fora de `/_s3lab/` cai no `index.html`).
+> **No authentication.** Meant for local and CI use. Disable with `S3LAB_CONSOLE_ENABLED=false` or bind to localhost when sharing a network. See [configuration](configuration.md#security-notes).
 
-## Saúde e info
+## Conventions
+
+- JSON in and out, UTF-8, `Content-Type: application/json`.
+- Timestamps: RFC 3339 with milliseconds (`2026-10-19T12:00:00.000Z`).
+- Errors: matching HTTP status plus `{"error": {"code": "NoSuchBucket", "message": "..."}}`. S3 codes are used when one fits (`NoSuchBucket`, `NoSuchKey`, `BucketNotEmpty`, `InvalidBucketName`, `BucketAlreadyOwnedByYou`), otherwise `BadRequest`, `NotFound`, `Conflict`, `InternalError`.
+- Object keys always go in the `key=` query parameter (URL-encoded), never in the path.
+- The web console is served at `/`; any path outside `/_s3lab/` falls back to `index.html`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | [`/_s3lab/health`](#health-and-info) | Liveness |
+| GET | [`/_s3lab/info`](#health-and-info) | Version, ports, storage, access key |
+| GET, POST | [`/_s3lab/buckets`](#buckets) | List / create buckets |
+| DELETE | [`/_s3lab/buckets/{bucket}`](#buckets) | Delete bucket (`?force=true`) |
+| GET, DELETE | [`/_s3lab/buckets/{bucket}/objects`](#objects) | List / delete by prefix |
+| GET, PUT, DELETE | [`/_s3lab/buckets/{bucket}/object?key=`](#objects) | Object metadata / upload / delete |
+| GET | [`/_s3lab/buckets/{bucket}/download?key=`](#objects) | Object body |
+| GET, DELETE | [`/_s3lab/requests`](#request-log) | Query / clear request log |
+| GET | [`/_s3lab/requests/stream`](#request-log) | Live request log (SSE) |
+| GET, POST, DELETE | [`/_s3lab/faults`](#fault-injection) | List / add / clear fault rules |
+| DELETE | [`/_s3lab/faults/{id}`](#fault-injection) | Remove one rule |
+| POST | [`/_s3lab/reset`](#reset) | Reset state |
+
+## Health and info
 
 `GET /_s3lab/health` → `200`
+
 ```json
 {"status": "ok", "version": "0.1.0"}
 ```
 
 `GET /_s3lab/info` → `200`
+
 ```json
 {
   "version": "0.1.0",
@@ -31,20 +51,24 @@ Convenções:
 }
 ```
 
+The secret key is never returned.
+
 ## Buckets
 
 `GET /_s3lab/buckets` → `200`
+
 ```json
 {"buckets": [{"name": "photos", "createdAt": "2026-10-19T12:00:00.000Z"}]}
 ```
 
-`POST /_s3lab/buckets` body `{"name": "photos"}` → `201` `{"name": "photos", "createdAt": "..."}`
+`POST /_s3lab/buckets` with body `{"name": "photos"}` → `201` `{"name": "photos", "createdAt": "..."}`
 
-`DELETE /_s3lab/buckets/{bucket}` → `204`. Com `?force=true` esvazia (objetos e uploads) antes de remover; sem `force` e bucket não vazio → `409 BucketNotEmpty`.
+`DELETE /_s3lab/buckets/{bucket}` → `204`. With `?force=true` objects and pending uploads are deleted first; without it, a non-empty bucket returns `409 BucketNotEmpty`.
 
-## Objetos
+## Objects
 
 `GET /_s3lab/buckets/{bucket}/objects?prefix=&delimiter=/&startAfter=&maxKeys=200` → `200`
+
 ```json
 {
   "objects": [
@@ -55,9 +79,11 @@ Convenções:
   "nextStartAfter": ""
 }
 ```
-`delimiter` padrão `/` (passar `delimiter=` vazio para listagem plana). `maxKeys` padrão 200, máx 1000.
+
+`delimiter` defaults to `/` (send `delimiter=` empty for a flat listing). `maxKeys` defaults to 200, max 1000. Pass `nextStartAfter` back as `startAfter` for the next page.
 
 `GET /_s3lab/buckets/{bucket}/object?key=a/b.jpg` → `200`
+
 ```json
 {
   "key": "a/b.jpg",
@@ -66,32 +92,34 @@ Convenções:
   "lastModified": "...",
   "partsCount": 0,
   "contentType": "image/jpeg",
-  "headers": {"Content-Encoding": "", "Content-Disposition": "", "Content-Language": "", "Cache-Control": "", "Expires": ""},
+  "headers": {"Cache-Control": "max-age=60"},
   "metadata": {"owner": "leo"}
 }
 ```
-`headers` só inclui valores não vazios.
 
-`GET /_s3lab/buckets/{bucket}/download?key=a/b.jpg` → `200` corpo bruto, `Content-Type` do objeto, `Content-Disposition: attachment; filename="b.jpg"`. Com `?inline=1` usa `inline` (preview na UI).
+`headers` contains only non-empty values among `Content-Encoding`, `Content-Disposition`, `Content-Language`, `Cache-Control`, `Expires`. `metadata` holds `x-amz-meta-*` values without the prefix.
 
-`PUT /_s3lab/buckets/{bucket}/object?key=a/b.jpg` corpo bruto; `Content-Type` da request vira o do objeto; headers `x-amz-meta-*` viram metadata → `201` mesmo JSON do GET de objeto.
+`GET /_s3lab/buckets/{bucket}/download?key=a/b.jpg` → `200` raw body with the object's `Content-Type` and `Content-Disposition: attachment; filename="b.jpg"`. Add `?inline=1` for `inline` (used for previews).
+
+`PUT /_s3lab/buckets/{bucket}/object?key=a/b.jpg` with the raw body. The request `Content-Type` becomes the object's; `x-amz-meta-*` headers become metadata → `201` with the same JSON as `GET .../object`.
 
 `DELETE /_s3lab/buckets/{bucket}/object?key=a/b.jpg` → `204`.
 
-`DELETE /_s3lab/buckets/{bucket}/objects?prefix=tmp/` → `200` `{"deleted": 12}` (apaga em lote por prefixo; prefixo vazio esvazia o bucket).
+`DELETE /_s3lab/buckets/{bucket}/objects?prefix=tmp/` → `200` `{"deleted": 12}`. An empty prefix empties the bucket.
 
-## Log de requests
+## Request log
 
-Apenas requests da porta S3 são registradas.
+Only requests to the S3 port are recorded.
 
 `GET /_s3lab/requests?bucket=&op=&key=&status=&errors=true&since=<id>&limit=100` → `200`
+
 ```json
 {
   "entries": [
     {
       "id": 42,
       "requestId": "8F3A1C2B4D5E6F70",
-      "time": "...",
+      "time": "2026-10-19T12:00:00.000Z",
       "method": "PUT",
       "path": "/photos/a.jpg",
       "query": "",
@@ -112,12 +140,25 @@ Apenas requests da porta S3 são registradas.
   ]
 }
 ```
-- Ordem: mais antiga → mais nova. `key` filtra por prefixo. `errors=true` → status ≥ 400. `since` → `id > since` (polling incremental). `limit` → as N mais recentes que casam.
-- Campos com valor vazio podem ser omitidos (`query`, `bucket`, `key`, `errorCode`, `accessKey`, `auth`, `faultId`, `remoteAddr`, `userAgent`).
+
+| Parameter | Effect |
+|---|---|
+| `bucket` | Exact bucket |
+| `op` | Exact operation name (see [S3 compatibility](s3-compatibility.md)) |
+| `key` | Key prefix |
+| `status` | Exact HTTP status |
+| `errors=true` | Only status ≥ 400 |
+| `since` | Only entries with `id > since` (incremental polling) |
+| `limit` | Keep the newest N matches |
+
+- Entries are ordered oldest → newest. IDs keep increasing even after a clear.
+- `auth` is `header`, `presigned`, `failed`, or empty for anonymous.
+- Empty fields may be omitted (`query`, `bucket`, `key`, `errorCode`, `accessKey`, `auth`, `faultId`, `remoteAddr`, `userAgent`).
 
 `DELETE /_s3lab/requests` → `204`.
 
-`GET /_s3lab/requests/stream` → `text/event-stream` (SSE). Aceita os mesmos filtros de `GET /_s3lab/requests` (exceto `limit`/`since`).
+`GET /_s3lab/requests/stream` → `text/event-stream` (Server-Sent Events). Accepts the same filters as `GET /_s3lab/requests` except `limit` and `since`.
+
 ```
 event: request
 id: 42
@@ -125,11 +166,17 @@ data: {...entry...}
 
 : ping
 ```
-Comentário `: ping` a cada 15s. Com header `Last-Event-ID`, reenvia primeiro as entradas com `id` maior ainda no buffer.
+
+A `: ping` comment is sent every 15 s. With a `Last-Event-ID` header, entries with a greater `id` still in the buffer are replayed first.
+
+```bash
+curl -N localhost:9001/_s3lab/requests/stream?errors=true
+```
 
 ## Fault injection
 
-Regra:
+Rule:
+
 ```json
 {
   "id": "slow-puts",
@@ -146,27 +193,39 @@ Regra:
   "hits": 0
 }
 ```
-- `target`: `http` (padrão, nome de operação S3 em `op`, ex. `PutObject`) ou `storage` (nome do método do backend em `op`, ex. `PutObject`, `GetObject`, `ListObjects`).
-- `op`, `bucket`, `key` (glob estilo `path.Match`) vazios casam qualquer valor.
-- `status` 0 = só atraso. Se `status` > 0 e `code` vazio, o código é derivado do status (`500 InternalError`, `503 SlowDown`, `403 AccessDenied`, `404 NoSuchKey`, outros `InternalError`).
-- `probability` em (0,1]; omitido = 1. `count` 0 = ilimitado; após `count` disparos a regra para de casar (continua listada).
-- `hits` é somente leitura.
-- Primeira regra que casa (ordem de criação) vence.
+
+| Field | Rules |
+|---|---|
+| `id` | Optional on create (generated as `f-xxxxxxxx`). Must be unique |
+| `target` | `http` (default): matched before auth, `op` is an S3 operation name. `storage`: matched inside the backend, `op` is a backend method (`PutObject`, `GetObject`, `HeadObject`, `ListObjects`, `CopyObject`, `UploadPart`, …) |
+| `op`, `bucket` | Exact match; empty matches anything |
+| `key` | `path.Match` glob (`*`, `?`, `[a-z]`); `*` does not cross `/` |
+| `status` | `0` (latency only) or `400`–`599` |
+| `code` | Defaults from status: `500 InternalError`, `503 SlowDown`, `403 AccessDenied`, `404 NoSuchKey`, `400 InvalidRequest`, others `InternalError` |
+| `delayMs` | `0`–`300000` |
+| `probability` | In `(0, 1]`; omitted = `1` |
+| `count` | `0` = unlimited; after `count` hits the rule stops matching but stays listed |
+| `hits` | Read-only |
+
+A rule needs `status > 0` or `delayMs > 0`. The first matching rule (creation order) wins.
 
 `GET /_s3lab/faults` → `200` `{"rules": [...]}`
 
-`POST /_s3lab/faults` body = regra (sem `id` → gerado) → `201` regra salva; inválida → `400 {"error":{"code":"BadRequest",...}}`; `id` duplicado → `409`.
+`POST /_s3lab/faults` with a rule → `201` saved rule. Invalid → `400 BadRequest`; duplicate `id` → `409 Conflict`.
 
-`DELETE /_s3lab/faults/{id}` → `204` ou `404`.
+`DELETE /_s3lab/faults/{id}` → `204` or `404`.
 
-`DELETE /_s3lab/faults` → `204` (remove todas).
+`DELETE /_s3lab/faults` → `204` (removes all).
 
-Também carregáveis no boot via env `S3LAB_FAULTS` (JSON array de regras).
+Rules can also be loaded at boot with `S3LAB_FAULTS` (JSON array).
 
 ## Reset
 
 `POST /_s3lab/reset` → `204`
-- Sem params: apaga todos os buckets/objetos/uploads e reaplica o seed (`S3LAB_BUCKETS`, `S3LAB_SEED_DIR`).
-- `?bucket=photos`: esvazia só esse bucket e reaplica o seed dele.
-- `?requests=true`: também limpa o log de requests.
-- `?faults=true`: também remove as regras de falha.
+
+| Parameter | Effect |
+|---|---|
+| none | Delete all buckets, objects and uploads, then re-apply the seed (`S3LAB_BUCKETS`, `S3LAB_SEED_DIR`) |
+| `bucket=photos` | Empty only that bucket and re-seed it |
+| `requests=true` | Also clear the request log |
+| `faults=true` | Also remove all fault rules |
