@@ -314,10 +314,11 @@ func Middleware(e *Engine, writeErr func(http.ResponseWriter, *http.Request, err
 				next.ServeHTTP(w, r)
 				return
 			}
+			info.FaultID = rule.ID
 			if !wait(r.Context(), rule.DelayMs) {
+				info.ErrorCode = "ClientCanceled"
 				return
 			}
-			info.FaultID = rule.ID
 			if rule.Status > 0 {
 				writeErr(w, r, rule.injected())
 				return

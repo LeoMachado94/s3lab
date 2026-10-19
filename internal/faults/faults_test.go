@@ -253,8 +253,8 @@ func TestMiddleware(t *testing.T) {
 		info := &s3op.Info{Op: s3op.GetObject}
 		start := time.Now()
 		_, called, err := run(e2, info, httptest.NewRequest("GET", "/b/k", nil).WithContext(ctx))
-		if called || err != nil || info.FaultID != "" || time.Since(start) > 5*time.Second {
-			t.Fatalf("called=%v err=%v fault=%q", called, err, info.FaultID)
+		if called || err != nil || info.FaultID != "long" || info.ErrorCode != "ClientCanceled" || time.Since(start) > 5*time.Second {
+			t.Fatalf("called=%v err=%v fault=%q code=%q", called, err, info.FaultID, info.ErrorCode)
 		}
 	})
 }

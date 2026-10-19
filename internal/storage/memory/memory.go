@@ -299,21 +299,21 @@ func (b *Backend) CopyObject(ctx context.Context, src, dst storage.ObjectRef, op
 	if err != nil {
 		return storage.ObjectInfo{}, err
 	}
-	data, etag, parts := srcObj.data, srcObj.info.ETag, srcObj.info.PartsCount
+	data := srcObj.data
 	if opts.Range != nil {
 		off, n, err := opts.Range.Resolve(srcObj.info.Size)
 		if err != nil {
 			return storage.ObjectInfo{}, err
 		}
 		data = bytes.Clone(data[off : off+n])
-		sum := md5.Sum(data)
-		etag, parts = hex.EncodeToString(sum[:]), 0
 	}
+	sum := md5.Sum(data)
+	etag := hex.EncodeToString(sum[:])
 	meta := srcObj.info.Meta
 	if opts.ReplaceMeta {
 		meta = opts.Meta
 	}
-	obj := newObject(dst.Bucket, dst.Key, data, etag, parts, cloneMeta(meta))
+	obj := newObject(dst.Bucket, dst.Key, data, etag, 0, cloneMeta(meta))
 	dstBucket.objects[dst.Key] = obj
 	return obj.snapshot(), nil
 }
