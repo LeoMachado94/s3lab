@@ -58,7 +58,7 @@ services:
 | `--console-address :9001` | `S3LAB_CONSOLE_ADDR=:9001` (default) |
 | `mc mb local/bucket` | `S3LAB_BUCKETS=bucket` |
 | `mc cp -r ./fixtures local/bucket` | `S3LAB_SEED_DIR` |
-| `mc anonymous set download` | `S3LAB_ANONYMOUS=true` (global, not per bucket) |
+| `mc anonymous set download` | `S3LAB_ANONYMOUS=true` (global, not per bucket; **also allows anonymous writes and deletes**) |
 | `/minio/health/live` | `GET :9001/_s3lab/health` or `s3lab healthcheck` |
 
 ## Healthchecks
@@ -72,7 +72,7 @@ healthcheck:
   retries: 15
 ```
 
-s3lab also answers `GET /minio/health/live` and `/minio/health/ready` on the S3 port with `200`, so external checks keep working.
+s3lab also answers `GET /minio/health/live` and `/minio/health/ready` on the S3 port with `200`, so external checks keep working. Only these two are implemented (not `/minio/health/cluster`).
 
 ## Data
 
@@ -87,10 +87,10 @@ aws --endpoint-url http://localhost:9100 s3 sync ./export s3://uploads
 ## What you lose
 
 - MinIO-specific APIs (`mc admin`, bucket notifications, ILM, policies, versioning). See [compatibility](s3-compatibility.md).
-- Per-bucket anonymous policies: s3lab's `S3LAB_ANONYMOUS` is all-or-nothing.
+- Per-bucket anonymous policies: s3lab's `S3LAB_ANONYMOUS` is all-or-nothing, and unlike `mc anonymous set download` (read-only) it also allows anonymous writes and deletes.
 
 ## What you gain
 
 - [Request log](testing.md#asserting-s3-requests) and [fault injection](testing.md#fault-injection) for tests.
 - `S3LAB_STORAGE=memory` and one-call [reset](testing.md#reset-between-tests).
-- ~15 MB image, instant startup, MIT license.
+- ~17 MB image, near-instant startup, MIT license.

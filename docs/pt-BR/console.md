@@ -5,9 +5,9 @@ Abra <http://localhost:9001>. O console fala apenas com a [admin API](admin-api.
 ## Cabeçalho
 
 - **Versão, backend de storage e região** do servidor em execução.
-- **Connect**: endpoint, access key e região prontos para copiar, mais um lembrete para habilitar o path-style. Cole direto no seu `.env`.
-- **Reset**: apaga todos os dados e reaplica o seed. Marque *requests* e/ou *faults* para também limpar o log de requests e as regras de falha.
-- **Alternar tema**: claro / escuro (segue o sistema operacional por padrão).
+- **Connect**: endpoint (o host vem do endereço do navegador), access key, um placeholder no lugar da secret key (nunca a real) e região prontos para copiar, mais um lembrete para habilitar o path-style. Cole direto no seu `.env`.
+- **Reset**: apaga todos os dados e reaplica o seed. *requests* vem marcado por padrão e *faults* não; eles também limpam o log de requests e as regras de falha. O reset é global: o reset por bucket só existe pela [API](admin-api.md#reset).
+- **Alternar tema**: alterna entre auto (segue o sistema operacional) → claro → escuro.
 
 ## Buckets — `#/buckets`
 
@@ -20,8 +20,8 @@ Abra <http://localhost:9001>. O console fala apenas com a [admin API](admin-api.
 - Navegação estilo pastas: prefixos terminados em `/` aparecem como pastas, com um breadcrumb para voltar.
 - **Filter** por prefixo, **Load more** para buckets grandes.
 - **Upload**: escolha arquivos ou arraste e solte na lista; eles vão para a pasta atual, com progresso por arquivo.
-- **Painel do objeto** (clique em um objeto): tamanho, ETag, última modificação, número de parts, content type, headers de sistema (`Cache-Control`, `Content-Disposition`, …), metadados do usuário (`x-amz-meta-*`), preview de imagens/texto/JSON até 1 MB, **Download** e **Delete**.
-- **Delete folder**: apaga todos os objetos sob o prefixo atual.
+- **Painel do objeto** (clique em um objeto): tamanho, ETag, última modificação, número de parts, content type, headers de sistema (`Cache-Control`, `Content-Disposition`, …), metadados do usuário (`x-amz-meta-*`), preview de imagens/texto/JSON até 1 MB, **Copy key**, **Download** e **Delete**.
+- **Delete prefix**: apaga todos os objetos sob o prefixo atual; na raiz do bucket, esvazia o bucket.
 
 ## Requests — `#/requests`
 
@@ -39,7 +39,7 @@ Usos típicos: entender por que um `SignatureDoesNotMatch` acontece (host errado
 
 - Regras com suas condições de match, efeito e **hits** (atualiza a cada 3 s).
 - **Presets**: um clique para adicionar cenários comuns (503 SlowDown no PutObject, GetObject falhando 50% das vezes, 2 s de latência em tudo, throttling nas 3 primeiras requests).
-- Formulário de **regra customizada** com todos os campos da [referência de regras](admin-api.md#injeção-de-falhas).
+- Formulário de **regra customizada** com todos os campos, exceto `id`, da [referência de regras](admin-api.md#injeção-de-falhas).
 - Apague uma regra ou todas.
 
 ## Desabilitando o console

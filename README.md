@@ -3,7 +3,7 @@
 **A tiny S3-compatible server built for development and integration tests.**
 Drop-in replacement for MinIO in your `docker compose` and CI, plus the tools you actually need when testing S3 code: a live request log, fault injection, one-call reset, and seeding.
 
-[Português (pt-BR)](docs/pt-BR/README.md)
+[Português (pt-BR)](https://github.com/LeoMachado94/s3lab/blob/main/docs/pt-BR/README.md)
 
 ```bash
 docker run --rm -p 9000:9000 -p 9001:9001 -e S3LAB_BUCKETS=dev leomachado94/s3lab
@@ -20,8 +20,8 @@ aws --endpoint-url http://localhost:9000 s3 cp ./photo.jpg s3://dev/photo.jpg
 
 | | s3lab | MinIO |
 |---|---|---|
-| Image size | ~15 MB, single static binary | ~100+ MB |
-| Startup | < 100 ms | seconds |
+| Image size | ~17 MB, single static binary | ~100+ MB |
+| Startup | well under a second | seconds |
 | In-memory mode | ✅ `S3LAB_STORAGE=memory` | ❌ |
 | Request log with JSON API (assert in tests) | ✅ | ❌ |
 | Fault injection (errors, latency, throttling) | ✅ | ❌ |
@@ -33,7 +33,7 @@ s3lab is **not** production storage: no replication, no erasure coding, no IAM p
 
 ## Features
 
-- **S3 API** used by real apps: buckets, objects, ranges, conditional requests, copy, multipart upload, batch delete, presigned URLs, CORS, SigV4 (header, presigned and streaming/chunked payloads). See [compatibility](docs/s3-compatibility.md).
+- **S3 API** used by real apps: buckets, objects, ranges, conditional requests, copy, multipart upload, batch delete, presigned URLs, CORS, SigV4 (header, presigned and streaming/chunked payloads). See [compatibility](https://github.com/LeoMachado94/s3lab/blob/main/docs/s3-compatibility.md).
 - **Two backends**: `fs` (persistent, default) and `memory` (fast, ephemeral; perfect for CI).
 - **Web console**: browse buckets, upload/download, inspect metadata, watch requests live, manage fault rules.
 - **Request log**: every S3 call recorded with operation, status, error code, latency and bytes, queryable via `GET /_s3lab/requests`.
@@ -45,15 +45,15 @@ s3lab is **not** production storage: no replication, no erasure coding, no IAM p
 
 | Guide | What's inside |
 |---|---|
-| [Getting started](docs/getting-started.md) | Run with Docker, Compose, binary; first bucket and object |
-| [Configuration](docs/configuration.md) | Every environment variable and flag |
-| [Client setup](docs/clients.md) | AWS CLI, Go, Python, Node.js, PHP/Laravel, Java, .NET, Ruby |
-| [Testing guide](docs/testing.md) | CI (GitHub Actions, GitLab), reset between tests, asserting requests, fault injection recipes |
-| [Web console](docs/console.md) | Tour of the UI |
-| [Admin API](docs/admin-api.md) | `/_s3lab/*` endpoints reference |
-| [S3 compatibility](docs/s3-compatibility.md) | Supported operations and known differences |
-| [Migrating from MinIO](docs/migrating-from-minio.md) | Side-by-side compose, env mapping |
-| [Troubleshooting](docs/troubleshooting.md) | `SignatureDoesNotMatch`, DNS-style buckets, CORS and more |
+| [Getting started](https://github.com/LeoMachado94/s3lab/blob/main/docs/getting-started.md) | Run with Docker, Compose, binary; first bucket and object |
+| [Configuration](https://github.com/LeoMachado94/s3lab/blob/main/docs/configuration.md) | Every environment variable and flag |
+| [Client setup](https://github.com/LeoMachado94/s3lab/blob/main/docs/clients.md) | AWS CLI, Go, Python, Node.js, PHP/Laravel, Java, .NET, Ruby, Django, rclone |
+| [Testing guide](https://github.com/LeoMachado94/s3lab/blob/main/docs/testing.md) | CI (GitHub Actions, GitLab), reset between tests, asserting requests, fault injection recipes |
+| [Web console](https://github.com/LeoMachado94/s3lab/blob/main/docs/console.md) | Tour of the UI |
+| [Admin API](https://github.com/LeoMachado94/s3lab/blob/main/docs/admin-api.md) | `/_s3lab/*` endpoints reference |
+| [S3 compatibility](https://github.com/LeoMachado94/s3lab/blob/main/docs/s3-compatibility.md) | Supported operations and known differences |
+| [Migrating from MinIO](https://github.com/LeoMachado94/s3lab/blob/main/docs/migrating-from-minio.md) | Side-by-side compose, env mapping |
+| [Troubleshooting](https://github.com/LeoMachado94/s3lab/blob/main/docs/troubleshooting.md) | `SignatureDoesNotMatch`, DNS-style buckets, CORS and more |
 
 ## Quick compose
 
@@ -72,4 +72,4 @@ volumes:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/LeoMachado94/s3lab/blob/main/LICENSE).

@@ -10,7 +10,9 @@ A admin API alimenta o console web e permite que os testes inspecionem e control
 - Timestamps: RFC 3339 com milissegundos (`2026-10-19T12:00:00.000Z`).
 - Erros: status HTTP correspondente mais `{"error": {"code": "NoSuchBucket", "message": "..."}}`. Códigos S3 são usados quando algum se encaixa (`NoSuchBucket`, `NoSuchKey`, `BucketNotEmpty`, `InvalidBucketName`, `BucketAlreadyOwnedByYou`); caso contrário, `BadRequest`, `NotFound`, `Conflict`, `InternalError`.
 - Keys de objetos sempre vão no query parameter `key=` (URL-encoded), nunca no path.
-- O console web é servido em `/`; qualquer path fora de `/_s3lab/` cai de volta em `index.html`.
+- O console web é servido em `/`; qualquer `GET`/`HEAD` fora de `/_s3lab/` cai de volta em `index.html`. Outros métodos ali retornam `405 MethodNotAllowed`.
+- `403 Forbidden` é retornado para um `Host` não permitido e para requests que não sejam GET cujo host do `Origin` difere do `Host` (veja [notas de segurança](configuration.md#notas-de-segurança)).
+- `PUT` de objeto acima de `S3LAB_MAX_OBJECT_SIZE` retorna `413 EntityTooLarge`. `maxKeys` menor que 1 ou não numérico retorna `400`.
 
 | Método | Path | Finalidade |
 |---|---|---|
@@ -109,7 +111,7 @@ A secret key nunca é retornada; o console mostra um placeholder no lugar dela.
 
 ## Log de requests
 
-Apenas requests à porta S3 são registradas.
+Apenas requests à porta S3 são registradas, exceto os probes `/minio/health/*`, que não entram no log.
 
 `GET /_s3lab/requests?bucket=&op=&key=&status=&errors=true&since=<id>&limit=100` → `200`
 
@@ -197,7 +199,7 @@ Regra:
 | Campo | Regras |
 |---|---|
 | `id` | Opcional na criação (gerado como `f-xxxxxxxx`). Deve ser único |
-| `target` | `http` (padrão): casado antes da autenticação, `op` é um nome de operação S3. `storage`: casado dentro do backend, `op` é um método do backend (`PutObject`, `GetObject`, `HeadObject`, `ListObjects`, `CopyObject`, `UploadPart`, …) |
+| `target` | `http` (padrão): casado antes da autenticação, `op` é um nome de operação S3. `storage`: casado dentro do backend, `op` é um método do backend (veja a lista abaixo) |
 | `op`, `bucket` | Match exato; vazio casa com qualquer valor |
 | `key` | Glob `path.Match` (`*`, `?`, `[a-z]`); `*` não atravessa `/` |
 | `status` | `0` (apenas latência) ou `400`–`599` |
@@ -206,6 +208,10 @@ Regra:
 | `probability` | Em `(0, 1]`; omitido = `1` |
 | `count` | `0` = ilimitado; após `count` hits a regra para de casar, mas continua listada |
 | `hits` | Somente leitura |
+
+Regras de storage aceitam estes nomes de `op`: `ListBuckets`, `CreateBucket`, `DeleteBucket`, `HeadBucket`, `PutObject`, `GetObject`, `HeadObject`, `DeleteObject`, `CopyObject`, `SetObjectMeta`, `ListObjects`, `CreateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListParts`, `ListMultipartUploads`. Não existe `ListObjectsV2` nem `DeleteObjects` para regras de storage (essas operações S3 chamam os métodos de backend acima).
+
+Nas respostas, `target` está sempre presente (`http` quando omitido na criação), `count`, `delayMs` e `probability` são omitidos quando não definidos ou `0`, `hits` está sempre presente, e `message` tem como padrão `Injected fault.`.
 
 Uma regra precisa de `status > 0` ou `delayMs > 0`. A primeira regra que casar (ordem de criação) vence.
 
@@ -226,6 +232,6 @@ As regras também podem ser carregadas no boot com `S3LAB_FAULTS` (array JSON).
 | Parâmetro | Efeito |
 |---|---|
 | nenhum | Apaga todos os buckets, objetos e uploads, e reaplica o seed (`S3LAB_BUCKETS`, `S3LAB_SEED_DIR`) |
-| `bucket=photos` | Esvazia apenas esse bucket e refaz o seed dele |
+| `bucket=photos` | Esvazia apenas esse bucket e refaz o seed dele. Um bucket inexistente retorna `404 NoSuchBucket`; um bucket que não faz parte do seed é apenas esvaziado |
 | `requests=true` | Também limpa o log de requests |
 | `faults=true` | Também remove todas as regras de falha |

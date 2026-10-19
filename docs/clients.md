@@ -5,7 +5,7 @@ Every S3 client needs the same four things:
 1. **Endpoint**: `http://localhost:9000` (or `http://<service>:9000` inside Docker Compose)
 2. **Credentials**: `s3lab` / `s3labsecret` by default
 3. **Region**: any value; `us-east-1` is the safest
-4. **Path-style addressing**: on (`http://host:9000/bucket/key`), unless you configured [`S3LAB_DOMAIN`](configuration.md)
+4. **Path-style addressing**: on (`http://host:9000/bucket/key`). Path-style always works; [`S3LAB_DOMAIN`](configuration.md) *also* enables virtual-host style (`<bucket>.<domain>`)
 
 Examples below use the defaults. Replace them with your own values.
 
@@ -156,6 +156,8 @@ Storage::disk('s3')->temporaryUrl('avatars/1.png', now()->addMinutes(5));
 ```
 
 > `temporaryUrl()` signs the **endpoint host** (`s3:9000`), which the browser can't resolve. See [troubleshooting → presigned URLs from Docker](troubleshooting.md#presigned-urls-generated-inside-docker-dont-open-in-the-browser).
+
+> `Storage::url()` returns a plain, unsigned URL. A browser can open it only with `S3LAB_ANONYMOUS=true`, which allows anonymous reads **and writes/deletes** for anyone who reaches the port, so use it only on a trusted dev network. Otherwise use `temporaryUrl()`.
 
 PHPUnit: create the bucket in your `S3LAB_BUCKETS` and reset state between tests, see [testing guide](testing.md#php--laravel).
 

@@ -20,8 +20,8 @@ aws --endpoint-url http://localhost:9000 s3 cp ./photo.jpg s3://dev/photo.jpg
 
 | | s3lab | MinIO |
 |---|---|---|
-| Tamanho da imagem | ~15 MB, um único binário estático | ~100+ MB |
-| Startup | < 100 ms | segundos |
+| Tamanho da imagem | ~17 MB, um único binário estático | ~100+ MB |
+| Startup | bem abaixo de um segundo | segundos |
 | Modo em memória | ✅ `S3LAB_STORAGE=memory` | ❌ |
 | Log de requests com API JSON (para fazer assert nos testes) | ✅ | ❌ |
 | Injeção de falhas (erros, latência, throttling) | ✅ | ❌ |
@@ -47,7 +47,7 @@ O s3lab **não** é storage de produção: sem replicação, sem erasure coding,
 |---|---|
 | [Primeiros passos](getting-started.md) | Rodar com Docker, Compose, binário; primeiro bucket e objeto |
 | [Configuração](configuration.md) | Todas as variáveis de ambiente e flags |
-| [Configuração de clientes](clients.md) | AWS CLI, Go, Python, Node.js, PHP/Laravel, Java, .NET, Ruby |
+| [Configuração de clientes](clients.md) | AWS CLI, Go, Python, Node.js, PHP/Laravel, Java, .NET, Ruby, Django, rclone |
 | [Guia de testes](testing.md) | CI (GitHub Actions, GitLab), reset entre testes, validação de requests, receitas de injeção de falhas |
 | [Console web](console.md) | Tour da interface |
 | [Admin API](admin-api.md) | Referência dos endpoints `/_s3lab/*` |
