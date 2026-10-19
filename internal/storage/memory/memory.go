@@ -318,6 +318,20 @@ func (b *Backend) CopyObject(ctx context.Context, src, dst storage.ObjectRef, op
 	return obj.snapshot(), nil
 }
 
+func (b *Backend) SetObjectMeta(ctx context.Context, bucketName, key string, meta storage.ObjectMeta) (storage.ObjectInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	obj, err := b.lookup(bucketName, key)
+	if err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	obj.info.Meta = cloneMeta(meta)
+	return obj.snapshot(), nil
+}
+
 func (b *Backend) ListObjects(ctx context.Context, bucketName string, opts storage.ListOptions) (storage.ListResult, error) {
 	if err := ctx.Err(); err != nil {
 		return storage.ListResult{}, err

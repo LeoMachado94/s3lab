@@ -486,6 +486,7 @@ func TestUploadPartCopy(t *testing.T) {
 		{"range", map[string]string{"x-amz-copy-source": source, "x-amz-copy-source-range": "bytes=2-5"}, "1", 200, "", "2345"},
 		{"range last byte", map[string]string{"x-amz-copy-source": source, "x-amz-copy-source-range": "bytes=9-9"}, "1", 200, "", "9"},
 		{"range beyond size", map[string]string{"x-amz-copy-source": source, "x-amz-copy-source-range": "bytes=5-10"}, "1", 400, "InvalidRequest", ""},
+		{"range start beyond size", map[string]string{"x-amz-copy-source": source, "x-amz-copy-source-range": "bytes=20-30"}, "1", 400, "InvalidRequest", ""},
 		{"range open ended", map[string]string{"x-amz-copy-source": source, "x-amz-copy-source-range": "bytes=2-"}, "1", 400, "InvalidArgument", ""},
 		{"range suffix", map[string]string{"x-amz-copy-source": source, "x-amz-copy-source-range": "bytes=-3"}, "1", 400, "InvalidArgument", ""},
 		{"range garbage", map[string]string{"x-amz-copy-source": source, "x-amz-copy-source-range": "bytes=a-b"}, "1", 400, "InvalidArgument", ""},

@@ -100,6 +100,8 @@ func TestPutObject(t *testing.T) {
 		{name: "too large while streaming", opts: []Option{WithMaxObjectSize(10)}, body: strings.Repeat("a", 20), length: -1, headers: map[string]string{"x-amz-content-sha256": "STREAMING-UNSIGNED-PAYLOAD-TRAILER"}, wantStatus: 400, wantCode: "EntityTooLarge"},
 		{name: "incomplete body", body: "abc", length: 10, wantStatus: 400, wantCode: "IncompleteBody"},
 		{name: "incomplete decoded body", body: "abc", length: -1, headers: map[string]string{"x-amz-decoded-content-length": "10"}, wantStatus: 400, wantCode: "IncompleteBody"},
+		{name: "longer than decoded body", body: "abcdef", length: -1, headers: map[string]string{"x-amz-decoded-content-length": "3"}, wantStatus: 400, wantCode: "IncompleteBody"},
+		{name: "unknown acl", body: "abc", length: -2, headers: map[string]string{"x-amz-acl": "bogus"}, wantStatus: 400, wantCode: "InvalidArgument"},
 		{name: "decoded length matches", body: "abc", length: -1, headers: map[string]string{"x-amz-decoded-content-length": "3"}, wantStatus: 200, wantStored: true},
 		{name: "invalid decoded length", body: "abc", length: -1, headers: map[string]string{"x-amz-decoded-content-length": "zz"}, wantStatus: 400, wantCode: "InvalidArgument"},
 		{name: "ignored headers", body: "hello", length: -2, headers: map[string]string{
@@ -619,6 +621,43 @@ func TestObjectACL(t *testing.T) {
 
 	rec = do(t, h, testReq{method: "PUT", target: "/bkt/missing?acl", body: strings.NewReader("x")})
 	requireS3Error(t, rec, 404, "NoSuchKey")
+
+	rec = do(t, h, testReq{method: "PUT", target: "/bkt/key?acl"})
+	requireS3Error(t, rec, 400, "MissingSecurityHeader")
+	rec = do(t, h, testReq{method: "PUT", target: "/bkt/key?acl", headers: map[string]string{"x-amz-acl": "bogus"}})
+	requireS3Error(t, rec, 400, "InvalidArgument")
+	rec = do(t, h, testReq{method: "PUT", target: "/bkt/key?acl", headers: map[string]string{"x-amz-acl": "private"}})
+	require.Equal(t, 200, rec.Code)
+	got, err = b.HeadObject(t.Context(), "bkt", "key")
+	require.NoError(t, err)
+	require.Empty(t, got.Meta.ACL)
+
+	rec = do(t, h, testReq{method: "PUT", target: "/bkt/copy", headers: map[string]string{"x-amz-copy-source": "/bkt/key", "x-amz-acl": "bogus"}})
+	requireS3Error(t, rec, 400, "InvalidArgument")
+	rec = do(t, h, testReq{method: "POST", target: "/bkt/mp?uploads", headers: map[string]string{"x-amz-acl": "bogus"}})
+	requireS3Error(t, rec, 400, "InvalidArgument")
+}
+
+func TestObjectACLKeepsMultipartIdentity(t *testing.T) {
+	h, b := newTestHandler(t)
+	mustCreateBucket(t, b, "bkt")
+	id := mpCreate(t, h, "bkt", "mp")
+	rec := do(t, h, testReq{method: "PUT", target: "/bkt/mp?partNumber=1&uploadId=" + id, body: strings.NewReader("data")})
+	require.Equal(t, 200, rec.Code)
+	etag := rec.Header().Get("ETag")
+	rec = mpComplete(h, "bkt", "mp", id, mpCompleteBody(CompletePart{PartNumber: 1, ETag: etag}))
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	before, err := b.HeadObject(t.Context(), "bkt", "mp")
+	require.NoError(t, err)
+
+	rec = do(t, h, testReq{method: "PUT", target: "/bkt/mp?acl", headers: map[string]string{"x-amz-acl": "public-read"}})
+	require.Equal(t, 200, rec.Code)
+	after, err := b.HeadObject(t.Context(), "bkt", "mp")
+	require.NoError(t, err)
+	require.Equal(t, "public-read", after.Meta.ACL)
+	require.Equal(t, before.ETag, after.ETag)
+	require.Equal(t, before.PartsCount, after.PartsCount)
+	require.True(t, before.LastModified.Equal(after.LastModified))
 }
 
 func TestObjectSDK(t *testing.T) {
