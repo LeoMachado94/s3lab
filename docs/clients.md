@@ -9,7 +9,7 @@ Every S3 client needs the same four things:
 
 Examples below use the defaults. Replace them with your own values.
 
-- [AWS CLI](#aws-cli) · [Go](#go-aws-sdk-v2) · [Python](#python-boto3) · [Node.js](#nodejs-aws-sdk-v3) · [PHP](#php-aws-sdk) · [Laravel](#laravel) · [Java](#java-aws-sdk-v2) · [.NET](#net) · [Ruby / Rails](#ruby--rails) · [Django](#django-django-storages) · [rclone](#rclone)
+- [AWS CLI](#aws-cli) · [Go](#go-aws-sdk-go-v2) · [Python](#python-boto3) · [Node.js](#nodejs-aws-sdk-v3) · [PHP](#php-aws-sdk) · [Laravel](#laravel) · [Java](#java-aws-sdk-v2) · [.NET](#net) · [Ruby / Rails](#ruby--rails) · [Django](#django-django-storages) · [rclone](#rclone)
 
 ---
 
@@ -97,9 +97,8 @@ url = s3.generate_presigned_url("get_object", Params={"Bucket": "dev", "Key": "i
 ## Node.js (AWS SDK v3)
 
 ```js
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
 
 const s3 = new S3Client({
   endpoint: "http://localhost:9000",

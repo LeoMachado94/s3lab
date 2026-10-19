@@ -14,7 +14,7 @@ s3lab version
 |---|---|---|---|
 | `S3LAB_ADDR` | `--addr` | `:9000` | Endereço de escuta da API S3 |
 | `S3LAB_CONSOLE_ADDR` | `--console-addr` | `:9001` | Endereço de escuta do console (UI) + admin API |
-| `S3LAB_CONSOLE_ENABLED` | `--console` | `true` | Use `false` para desabilitar totalmente o console e a admin API |
+| `S3LAB_CONSOLE_ENABLED` | `--console` (`--console=false`) | `true` | Use `false` para desabilitar totalmente o console e a admin API |
 | `S3LAB_ACCESS_KEY` | `--access-key` | `s3lab` | Access key com a qual os clientes devem assinar |
 | `S3LAB_SECRET_KEY` | `--secret-key` | `s3labsecret` | Secret key |
 | `S3LAB_REGION` | `--region` | `us-east-1` | Região retornada por `GetBucketLocation`. Requests assinadas para **qualquer** região são aceitas |

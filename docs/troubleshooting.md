@@ -39,7 +39,7 @@ Options:
        extra_hosts:
          - "s3.localhost:host-gateway"
        environment:
-         AWS_ENDPOINT: http://s3.localhost:9000
+         AWS_ENDPOINT_URL: http://s3.localhost:9000   # Laravel: AWS_ENDPOINT
    ```
    and open `http://s3.localhost:9000/...` in the browser (`*.localhost` resolves to 127.0.0.1 in modern browsers).
 2. **Use a second client just for presigning**, configured with the public endpoint (`http://localhost:9000`). Signing is offline, so it doesn't need to reach the server.

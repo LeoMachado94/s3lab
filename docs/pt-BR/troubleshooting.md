@@ -39,7 +39,7 @@ Opções:
        extra_hosts:
          - "s3.localhost:host-gateway"
        environment:
-         AWS_ENDPOINT: http://s3.localhost:9000
+         AWS_ENDPOINT_URL: http://s3.localhost:9000   # Laravel: AWS_ENDPOINT
    ```
    e abra `http://s3.localhost:9000/...` no navegador (`*.localhost` resolve para 127.0.0.1 nos navegadores modernos).
 2. **Use um segundo cliente só para gerar as URLs pré-assinadas**, configurado com o endpoint público (`http://localhost:9000`). A assinatura é offline, então ele não precisa alcançar o servidor.

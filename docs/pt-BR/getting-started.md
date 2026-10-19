@@ -74,7 +74,7 @@ s3lab --data-dir ./data --buckets dev
 
 | Configuração | Padrão | Altere com |
 |---|---|---|
-| Endpoint | `http://localhost:9000` | `S3LAB_ADDR` |
+| Endpoint | `http://localhost:9000` | a porta publicada (`-p`) ou o endereço de escuta `S3LAB_ADDR` |
 | Access key | `s3lab` | `S3LAB_ACCESS_KEY` |
 | Secret key | `s3labsecret` | `S3LAB_SECRET_KEY` |
 | Região | `us-east-1` | `S3LAB_REGION` |
@@ -99,7 +99,7 @@ aws s3 presign s3://photos/2026/cat.jpg --expires-in 300
 Com `curl` puro (sem assinatura: use a admin API):
 
 ```bash
-curl -X POST localhost:9001/_s3lab/buckets -d '{"name":"photos"}'
+curl -X POST localhost:9001/_s3lab/buckets -H 'Content-Type: application/json' -d '{"name":"photos"}'
 curl -X PUT "localhost:9001/_s3lab/buckets/photos/object?key=hello.txt" \
   -H 'Content-Type: text/plain' --data-binary 'hello'
 curl "localhost:9001/_s3lab/buckets/photos/objects"

@@ -97,9 +97,8 @@ url = s3.generate_presigned_url("get_object", Params={"Bucket": "dev", "Key": "i
 ## Node.js (AWS SDK v3)
 
 ```js
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
 
 const s3 = new S3Client({
   endpoint: "http://localhost:9000",

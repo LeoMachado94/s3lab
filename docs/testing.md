@@ -251,7 +251,7 @@ curl -X POST localhost:9001/_s3lab/faults -H 'Content-Type: application/json' -d
 |---|---|
 | `op` | S3 operation (`PutObject`, `GetObject`, `ListObjectsV2`, …). Empty = any |
 | `bucket` | Exact bucket. Empty = any |
-| `key` | Glob, e.g. `uploads/*.png`. Empty = any |
+| `key` | Glob, e.g. `uploads/*.png` (`*` does not cross `/`). Empty = any |
 | `status` / `code` / `message` | Error to return. `status: 0` = latency only |
 | `delayMs` | Wait before responding (or before failing) |
 | `probability` | `0.3` = 30% of matching requests. Default `1` |
@@ -268,14 +268,43 @@ The response includes an `id`; remove it with `DELETE /_s3lab/faults/{id}` or re
 | Flaky reads | `{"op":"GetObject","status":500,"probability":0.5}` |
 | Client timeout | `{"op":"GetObject","delayMs":30000}` |
 | Slow network everywhere | `{"delayMs":800}` |
-| Missing file handling | `{"op":"GetObject","key":"reports/*","status":404,"code":"NoSuchKey"}` |
+| Missing file handling | `{"op":"GetObject","key":"reports/*/*.pdf","status":404,"code":"NoSuchKey"}` |
 | Permission errors | `{"bucket":"private","status":403,"code":"AccessDenied"}` |
 | Multipart completion failure | `{"op":"CompleteMultipartUpload","status":500,"count":1}` |
 | Fail the first requests after boot | `S3LAB_FAULTS='[{"status":503,"code":"SlowDown","count":3}]'` |
 
-Go test with a fault:
+Go test with a fault (`uploader` is your own code under test):
 
 ```go
+func addFault(t *testing.T, rule string) {
+	t.Helper()
+	resp, err := http.Post(os.Getenv("S3LAB_ADMIN_URL")+"/_s3lab/faults", "application/json", strings.NewReader(rule))
+	if err != nil || resp.StatusCode != http.StatusCreated {
+		t.Fatalf("add fault: %v %v", err, resp)
+	}
+	resp.Body.Close()
+}
+
+type s3Request struct {
+	Op        string `json:"op"`
+	Status    int    `json:"status"`
+	ErrorCode string `json:"errorCode"`
+}
+
+func listRequests(t *testing.T, query string) []s3Request {
+	t.Helper()
+	resp, err := http.Get(os.Getenv("S3LAB_ADMIN_URL") + "/_s3lab/requests?" + query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct{ Entries []s3Request }
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	return out.Entries
+}
+
 func TestUploadRetriesOnSlowDown(t *testing.T) {
 	resetS3(t)
 	addFault(t, `{"op":"PutObject","status":503,"code":"SlowDown","count":1}`)

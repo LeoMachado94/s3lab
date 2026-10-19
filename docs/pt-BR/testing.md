@@ -251,7 +251,7 @@ curl -X POST localhost:9001/_s3lab/faults -H 'Content-Type: application/json' -d
 |---|---|
 | `op` | Operação S3 (`PutObject`, `GetObject`, `ListObjectsV2`, …). Vazio = qualquer |
 | `bucket` | Bucket exato. Vazio = qualquer |
-| `key` | Glob, ex.: `uploads/*.png`. Vazio = qualquer |
+| `key` | Glob, ex.: `uploads/*.png` (`*` não atravessa `/`). Vazio = qualquer |
 | `status` / `code` / `message` | Erro a retornar. `status: 0` = apenas latência |
 | `delayMs` | Espera antes de responder (ou antes de falhar) |
 | `probability` | `0.3` = 30% das requests que casam. Padrão `1` |
@@ -268,7 +268,7 @@ A resposta inclui um `id`; remova com `DELETE /_s3lab/faults/{id}` ou remova tod
 | Leituras instáveis | `{"op":"GetObject","status":500,"probability":0.5}` |
 | Timeout do cliente | `{"op":"GetObject","delayMs":30000}` |
 | Rede lenta em tudo | `{"delayMs":800}` |
-| Tratamento de arquivo inexistente | `{"op":"GetObject","key":"reports/*","status":404,"code":"NoSuchKey"}` |
+| Tratamento de arquivo inexistente | `{"op":"GetObject","key":"reports/*/*.pdf","status":404,"code":"NoSuchKey"}` |
 | Erros de permissão | `{"bucket":"private","status":403,"code":"AccessDenied"}` |
 | Falha na conclusão do multipart | `{"op":"CompleteMultipartUpload","status":500,"count":1}` |
 | Falhar as primeiras requests após o boot | `S3LAB_FAULTS='[{"status":503,"code":"SlowDown","count":3}]'` |
@@ -276,10 +276,40 @@ A resposta inclui um `id`; remova com `DELETE /_s3lab/faults/{id}` ou remova tod
 Teste em Go com uma falha:
 
 ```go
+func addFault(t *testing.T, rule string) {
+	t.Helper()
+	resp, err := http.Post(os.Getenv("S3LAB_ADMIN_URL")+"/_s3lab/faults", "application/json", strings.NewReader(rule))
+	if err != nil || resp.StatusCode != http.StatusCreated {
+		t.Fatalf("add fault: %v %v", err, resp)
+	}
+	resp.Body.Close()
+}
+
+type s3Request struct {
+	Op        string `json:"op"`
+	Status    int    `json:"status"`
+	ErrorCode string `json:"errorCode"`
+}
+
+func listRequests(t *testing.T, query string) []s3Request {
+	t.Helper()
+	resp, err := http.Get(os.Getenv("S3LAB_ADMIN_URL") + "/_s3lab/requests?" + query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct{ Entries []s3Request }
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	return out.Entries
+}
+
 func TestUploadRetriesOnSlowDown(t *testing.T) {
 	resetS3(t)
 	addFault(t, `{"op":"PutObject","status":503,"code":"SlowDown","count":1}`)
 
+	// uploader é o seu código sob teste
 	if err := uploader.Upload(ctx, "uploads", "a.txt", strings.NewReader("x")); err != nil {
 		t.Fatalf("upload should succeed after retry: %v", err)
 	}
