@@ -1,6 +1,7 @@
 package console
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 const (
 	defaultListKeys = 200
 	maxListKeys     = 1000
+
+	forceDeleteAttempts = 3
 )
 
 type bucketView struct {
@@ -106,15 +109,27 @@ func (s *server) createBucket(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) deleteBucket(w http.ResponseWriter, r *http.Request) {
 	bucket := r.PathValue("bucket")
+	attempts := 1
 	if r.URL.Query().Get("force") == "true" {
-		if err := s.Backend.Reset(r.Context(), bucket); err != nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		attempts = forceDeleteAttempts
+	}
+	for i := 1; ; i++ {
+		if attempts > 1 {
+			if err := s.Backend.Reset(r.Context(), bucket); err != nil {
+				s.storageError(w, err)
+				return
+			}
+		}
+		err := s.Backend.DeleteBucket(r.Context(), bucket)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, storage.ErrBucketNotEmpty) || i >= attempts {
 			s.storageError(w, err)
 			return
 		}
-	}
-	if err := s.Backend.DeleteBucket(r.Context(), bucket); err != nil {
-		s.storageError(w, err)
-		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -221,9 +236,19 @@ func (s *server) putObject(w http.ResponseWriter, r *http.Request) {
 			meta.User[strings.TrimPrefix(lower, prefix)] = strings.Join(vals, ",")
 		}
 	}
-	info, err := s.Backend.PutObject(r.Context(), r.PathValue("bucket"), key, r.Body,
+	if r.ContentLength > s.MaxObjectSize {
+		writeTooLarge(w, s.MaxObjectSize)
+		return
+	}
+	body := http.MaxBytesReader(w, r.Body, s.MaxObjectSize)
+	info, err := s.Backend.PutObject(r.Context(), r.PathValue("bucket"), key, body,
 		storage.PutOptions{Size: r.ContentLength, Meta: meta})
 	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeTooLarge(w, s.MaxObjectSize)
+			return
+		}
 		s.storageError(w, err)
 		return
 	}
@@ -305,4 +330,9 @@ func rfc5987(s string) string {
 		}
 	}
 	return b.String()
+}
+
+func writeTooLarge(w http.ResponseWriter, limit int64) {
+	writeError(w, http.StatusRequestEntityTooLarge, "EntityTooLarge",
+		fmt.Sprintf("object exceeds the console upload limit of %d bytes", limit))
 }

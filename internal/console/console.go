@@ -6,10 +6,12 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/LeoMachado94/s3lab/internal/faults"
@@ -23,6 +25,8 @@ const (
 	timeLayout      = "2006-01-02T15:04:05.000Z07:00"
 	maxBodyBytes    = 1 << 20
 	defaultPingEach = 15 * time.Second
+
+	defaultMaxObjectSize = 5 << 30
 )
 
 type Info struct {
@@ -47,11 +51,20 @@ type Deps struct {
 	Info     Info
 	Logger   *slog.Logger
 
+	// AllowedHosts are extra Host values (port stripped, case-insensitive) accepted by the console.
+	AllowedHosts []string
+	// MaxObjectSize caps console uploads in bytes; 0 means 5 GiB.
+	MaxObjectSize int64
+	// Done, when closed, ends long-lived streams so graceful shutdown is not blocked.
+	Done <-chan struct{}
+
 	pingInterval time.Duration
 }
 
 type server struct {
 	Deps
+	// mu serializes reset and force-delete against each other.
+	mu sync.Mutex
 }
 
 func New(d Deps) http.Handler {
@@ -60,6 +73,9 @@ func New(d Deps) http.Handler {
 	}
 	if d.pingInterval <= 0 {
 		d.pingInterval = defaultPingEach
+	}
+	if d.MaxObjectSize <= 0 {
+		d.MaxObjectSize = defaultMaxObjectSize
 	}
 	s := &server{Deps: d}
 	mux := http.NewServeMux()
@@ -91,7 +107,7 @@ func New(d Deps) http.Handler {
 
 	mux.HandleFunc("/", s.static())
 
-	return s.recoverer(sameOrigin(mux))
+	return s.recoverer(s.hostGuard(sameOrigin(mux)))
 }
 
 func (s *server) recoverer(next http.Handler) http.Handler {
@@ -109,6 +125,44 @@ func (s *server) recoverer(next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// hostGuard rejects admin API requests whose Host is not local/private, blocking DNS rebinding.
+func (s *server) hostGuard(next http.Handler) http.Handler {
+	allowed := make(map[string]struct{}, len(s.AllowedHosts))
+	for _, h := range s.AllowedHosts {
+		allowed[strings.ToLower(strings.TrimSpace(h))] = struct{}{}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/_s3lab/") && !hostAllowed(r.Host, allowed) {
+			writeError(w, http.StatusForbidden, "Forbidden", "host not allowed; set S3LAB_CONSOLE_ALLOWED_HOSTS")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func hostAllowed(hostport string, allowed map[string]struct{}) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.TrimSuffix(strings.Trim(host, "[]"), "."))
+	if host == "" {
+		return false
+	}
+	if net.ParseIP(host) != nil || !strings.Contains(host, ".") {
+		return true
+	}
+	if _, ok := allowed[host]; ok {
+		return true
+	}
+	for _, suffix := range []string{".localhost", ".local", ".test", ".internal"} {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // sameOrigin blocks cross-site state-changing requests (no auth, so a web page
