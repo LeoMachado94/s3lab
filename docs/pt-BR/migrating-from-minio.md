@@ -33,7 +33,7 @@ Depois:
 ```yaml
 services:
   minio:                       # keep the service name so app config doesn't change
-    image: leomachado94/s3lab
+    image: leomachado/s3lab
     ports: ["9000:9000", "9001:9001"]
     environment:
       MINIO_ROOT_USER: admin

@@ -8,19 +8,19 @@
 docker run --rm --name s3lab \
   -p 9000:9000 -p 9001:9001 \
   -e S3LAB_BUCKETS=dev \
-  leomachado94/s3lab
+  leomachado/s3lab
 ```
 
 Os dados ficam em `/data` dentro do container. Para mantê-los entre reinícios, use um volume:
 
 ```bash
-docker run -d --name s3lab -p 9000:9000 -p 9001:9001 -v s3lab-data:/data leomachado94/s3lab
+docker run -d --name s3lab -p 9000:9000 -p 9001:9001 -v s3lab-data:/data leomachado/s3lab
 ```
 
 Ou dispense o disco por completo (mais rápido, tudo se perde ao parar):
 
 ```bash
-docker run --rm -p 9000:9000 -e S3LAB_STORAGE=memory leomachado94/s3lab
+docker run --rm -p 9000:9000 -e S3LAB_STORAGE=memory leomachado/s3lab
 ```
 
 ### Docker Compose
@@ -28,7 +28,7 @@ docker run --rm -p 9000:9000 -e S3LAB_STORAGE=memory leomachado94/s3lab
 ```yaml
 services:
   s3:
-    image: leomachado94/s3lab
+    image: leomachado/s3lab
     ports:
       - "9000:9000"   # S3 API
       - "9001:9001"   # console + admin API

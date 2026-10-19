@@ -77,7 +77,7 @@ seed/
 ```yaml
 services:
   s3:
-    image: leomachado94/s3lab
+    image: leomachado/s3lab
     environment:
       S3LAB_SEED_DIR: /seed
     volumes:

@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       s3:
-        image: leomachado94/s3lab
+        image: leomachado/s3lab
         ports: ["9000:9000", "9001:9001"]
         env:
           S3LAB_STORAGE: memory
@@ -49,7 +49,7 @@ jobs:
 test:
   image: python:3.13
   services:
-    - name: leomachado94/s3lab
+    - name: leomachado/s3lab
       alias: s3
   variables:
     S3LAB_STORAGE: memory
@@ -68,7 +68,7 @@ test:
 ```yaml
 services:
   s3:
-    image: leomachado94/s3lab
+    image: leomachado/s3lab
     environment:
       S3LAB_STORAGE: memory
       S3LAB_SEED_DIR: /seed
@@ -86,7 +86,7 @@ Go:
 
 ```go
 req := testcontainers.ContainerRequest{
-	Image:        "leomachado94/s3lab",
+	Image:        "leomachado/s3lab",
 	ExposedPorts: []string{"9000/tcp", "9001/tcp"},
 	Env:          map[string]string{"S3LAB_STORAGE": "memory", "S3LAB_BUCKETS": "test"},
 	WaitingFor:   wait.ForHTTP("/_s3lab/health").WithPort("9001/tcp"),
@@ -102,7 +102,7 @@ Python:
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.waiting_utils import wait_for_logs
 
-s3lab = (DockerContainer("leomachado94/s3lab")
+s3lab = (DockerContainer("leomachado/s3lab")
          .with_env("S3LAB_STORAGE", "memory")
          .with_env("S3LAB_BUCKETS", "test")
          .with_exposed_ports(9000, 9001))

@@ -6,7 +6,7 @@ Substituto direto do MinIO no seu `docker compose` e no CI, com as ferramentas q
 [English](../../README.md)
 
 ```bash
-docker run --rm -p 9000:9000 -p 9001:9001 -e S3LAB_BUCKETS=dev leomachado94/s3lab
+docker run --rm -p 9000:9000 -p 9001:9001 -e S3LAB_BUCKETS=dev leomachado/s3lab
 ```
 
 - API S3: `http://localhost:9000` — access key `s3lab`, secret `s3labsecret`, região `us-east-1`
@@ -60,7 +60,7 @@ O s3lab **não** é storage de produção: sem replicação, sem erasure coding,
 ```yaml
 services:
   s3:
-    image: leomachado94/s3lab
+    image: leomachado/s3lab
     ports: ["9000:9000", "9001:9001"]
     environment:
       S3LAB_BUCKETS: uploads,avatars
