@@ -51,7 +51,7 @@ The admin API powers the web console and lets tests inspect and control s3lab wi
 }
 ```
 
-The secret key is never returned.
+The secret key is never returned; the console shows a placeholder for it.
 
 ## Buckets
 
@@ -157,7 +157,7 @@ Only requests to the S3 port are recorded.
 
 `DELETE /_s3lab/requests` → `204`.
 
-`GET /_s3lab/requests/stream` → `text/event-stream` (Server-Sent Events). Accepts the same filters as `GET /_s3lab/requests` except `limit` and `since`.
+`GET /_s3lab/requests/stream` → `text/event-stream` (Server-Sent Events). Accepts the same filters as `GET /_s3lab/requests` except `limit`. With `since=<id>` (or a `Last-Event-ID` header, which wins), matching entries with a greater `id` still in the buffer are replayed first, then live entries follow. Clients can fill a view with `GET /_s3lab/requests?limit=N` and open the stream with `since=<last id>` without gaps.
 
 ```
 event: request
@@ -167,7 +167,7 @@ data: {...entry...}
 : ping
 ```
 
-A `: ping` comment is sent every 15 s. With a `Last-Event-ID` header, entries with a greater `id` still in the buffer are replayed first.
+A `: ping` comment is sent every 15 s.
 
 ```bash
 curl -N localhost:9001/_s3lab/requests/stream?errors=true
@@ -211,9 +211,9 @@ A rule needs `status > 0` or `delayMs > 0`. The first matching rule (creation or
 
 `GET /_s3lab/faults` → `200` `{"rules": [...]}`
 
-`POST /_s3lab/faults` with a rule → `201` saved rule. Invalid → `400 BadRequest`; duplicate `id` → `409 Conflict`.
+`POST /_s3lab/faults` with a rule → `201` saved rule. Invalid → `400` code `BadRequest`; duplicate `id` → `409` code `Conflict`.
 
-`DELETE /_s3lab/faults/{id}` → `204` or `404`.
+`DELETE /_s3lab/faults/{id}` → `204`, or `404` code `NotFound`.
 
 `DELETE /_s3lab/faults` → `204` (removes all).
 
