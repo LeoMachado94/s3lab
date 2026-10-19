@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { h, copyText, field } from './dom.js';
 import { app, storageGet, storageSet } from './store.js';
-import { toast, fail, dialog } from './ui.js';
+import { toast, fail, dialog, errorText } from './ui.js';
 import * as bucketsView from './views/buckets.js';
 import * as objectsView from './views/objects.js';
 import * as requestsView from './views/requests.js';
@@ -62,7 +62,7 @@ function showLogin() {
       await api.login(ak.value, sk.value);
       location.reload();
     } catch (e) {
-      msg.textContent = e.status === 401 ? 'Invalid access key or secret key.' : e.message;
+      msg.textContent = e.status === 401 ? 'Wrong access key or secret key.' : errorText(e);
       submit.disabled = false;
       sk.select();
     }

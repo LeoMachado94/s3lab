@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { h, stateBox, field } from '../dom.js';
-import { toast, fail, dialog } from '../ui.js';
+import { toast, fail, dialog, errorText } from '../ui.js';
 import { OPS } from '../ops.js';
 
 const PRESETS = [
@@ -117,12 +117,12 @@ export function mount(root) {
     } catch (ex) {
       if (ex.name === 'AbortError') return;
       if (silent === true) {
-        const msg = `${ex.code}: ${ex.message}`;
+        const msg = errorText(ex);
         if (msg !== lastErr) fail(ex);
         lastErr = msg;
         return;
       }
-      listBox.replaceChildren(stateBox('error', `${ex.code}: ${ex.message}`, load));
+      listBox.replaceChildren(stateBox('error', errorText(ex), load));
     }
   }
 

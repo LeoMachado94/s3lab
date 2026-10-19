@@ -9,9 +9,31 @@ export function toast(kind, text, title) {
   setTimeout(() => el.remove(), kind === 'error' ? 9000 : 4000);
 }
 
+const FRIENDLY = {
+  BucketAlreadyOwnedByYou: 'A bucket with this name already exists.',
+  BucketAlreadyExists: 'A bucket with this name already exists.',
+  NoSuchBucket: 'This bucket no longer exists. It may have been deleted or reset.',
+  NoSuchKey: 'This object no longer exists. It may have been deleted or reset.',
+  BucketNotEmpty: 'This bucket still has objects. Tick "Force" to delete it with everything inside.',
+  InvalidBucketName: 'Invalid bucket name. Use 3-63 lowercase letters, digits, dots or hyphens.',
+  EntityTooLarge: 'This file is bigger than the server limit (S3LAB_MAX_OBJECT_SIZE).',
+  NetworkError: "Can't reach s3lab. Check that the server is running.",
+  Unauthorized: 'Your session has expired. Log in again.',
+  InternalError: 's3lab hit an internal error. Check the server logs for details.',
+};
+
+// errorText turns an API error into a sentence for people; unknown codes fall back to the server message.
+export function errorText(err) {
+  const known = FRIENDLY[err?.code];
+  if (known) return known;
+  const msg = String(err?.message || err || 'Something went wrong.').trim();
+  const text = msg.charAt(0).toUpperCase() + msg.slice(1);
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
 export function fail(err) {
   if (err?.name === 'AbortError') return;
-  toast('error', err?.message || String(err), err?.code);
+  toast('error', errorText(err));
 }
 
 let dlgSeq = 0;

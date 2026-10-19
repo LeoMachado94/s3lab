@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { h, fmtDate, stateBox, field } from '../dom.js';
-import { toast, fail, dialog } from '../ui.js';
+import { toast, fail, dialog, errorText } from '../ui.js';
 
 export function validateBucketName(n) {
   if (n.length < 3 || n.length > 63) return 'Must be 3-63 characters';
@@ -38,8 +38,7 @@ export function mount(root) {
       toast('ok', `Bucket ${name} created`);
       load();
     } catch (ex) {
-      err.textContent = `${ex.code}: ${ex.message}`;
-      fail(ex);
+      err.textContent = errorText(ex);
     } finally {
       createBtn.disabled = false;
     }
@@ -85,7 +84,7 @@ export function mount(root) {
       render(res.buckets || []);
     } catch (ex) {
       if (ex.name === 'AbortError') return;
-      body.replaceChildren(stateBox('error', `${ex.code}: ${ex.message}`, load));
+      body.replaceChildren(stateBox('error', errorText(ex), load));
     }
   }
 

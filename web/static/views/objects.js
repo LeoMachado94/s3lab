@@ -1,6 +1,6 @@
 import { api, uploadObject } from '../api.js';
 import { h, fmtSize, fmtDate, stateBox, debounce, copyText } from '../dom.js';
-import { toast, fail, dialog } from '../ui.js';
+import { toast, fail, dialog, errorText } from '../ui.js';
 
 const PREVIEW_MAX = 1024 * 1024;
 const MAX_PARALLEL_UPLOADS = 3;
@@ -96,7 +96,7 @@ export function mount(root, route) {
       renderList();
     } catch (ex) {
       if (ex.name === 'AbortError' || seq !== loadSeq) return;
-      listBox.replaceChildren(stateBox('error', `${ex.code}: ${ex.message}`, () => load(reset)));
+      listBox.replaceChildren(stateBox('error', errorText(ex), () => load(reset)));
     }
   }
 
@@ -123,7 +123,7 @@ export function mount(root, route) {
       panel.replaceChildren(panelHead(key), ...detailBody(meta, signal));
     } catch (ex) {
       if (ex.name === 'AbortError') return;
-      panel.replaceChildren(panelHead(key), stateBox('error', `${ex.code}: ${ex.message}`, () => select(key)));
+      panel.replaceChildren(panelHead(key), stateBox('error', errorText(ex), () => select(key)));
     }
   }
 
@@ -267,7 +267,7 @@ export function mount(root, route) {
       item.status.className = 'ok-text';
     } catch (ex) {
       item.state = 'failed';
-      item.status.textContent = ex.name === 'AbortError' ? 'cancelled' : `${ex.code}: ${ex.message}`;
+      item.status.textContent = ex.name === 'AbortError' ? 'cancelled' : errorText(ex);
       item.status.className = 'err';
       if (ex.name !== 'AbortError') fail(ex);
     }
