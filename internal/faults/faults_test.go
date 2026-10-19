@@ -282,6 +282,10 @@ func (fake) HeadObject(context.Context, string, string) (storage.ObjectInfo, err
 	return storage.ObjectInfo{ETag: "ok"}, nil
 }
 func (fake) DeleteObject(context.Context, string, string) error { return nil }
+func (fake) SetObjectMeta(context.Context, string, string, storage.ObjectMeta) (storage.ObjectInfo, error) {
+	return storage.ObjectInfo{ETag: "ok"}, nil
+}
+
 func (fake) CopyObject(context.Context, storage.ObjectRef, storage.ObjectRef, storage.CopyOptions) (storage.ObjectInfo, error) {
 	return storage.ObjectInfo{ETag: "ok"}, nil
 }
@@ -329,6 +333,10 @@ func TestWrapBackend(t *testing.T) {
 			_, err := b.CopyObject(ctx, storage.ObjectRef{Bucket: "s", Key: "s"}, storage.ObjectRef{Bucket: "b", Key: "k"}, storage.CopyOptions{})
 			return err
 		},
+		"SetObjectMeta": func(b storage.Backend) error {
+			_, err := b.SetObjectMeta(ctx, "b", "k", storage.ObjectMeta{})
+			return err
+		},
 		"ListObjects": func(b storage.Backend) error { _, err := b.ListObjects(ctx, "b", storage.ListOptions{}); return err },
 		"CreateMultipartUpload": func(b storage.Backend) error {
 			_, err := b.CreateMultipartUpload(ctx, "b", "k", storage.ObjectMeta{})
@@ -353,7 +361,7 @@ func TestWrapBackend(t *testing.T) {
 		},
 		"Reset": func(b storage.Backend) error { return b.Reset(ctx, "") },
 	}
-	if len(calls) != 17 {
+	if len(calls) != 18 {
 		t.Fatalf("methods = %d", len(calls))
 	}
 	for method, call := range calls {

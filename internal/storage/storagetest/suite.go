@@ -41,6 +41,7 @@ func Run(t *testing.T, newBackend Factory) {
 		{"EmptyObject", testEmptyObject},
 		{"Range", testRange},
 		{"CopyObject", testCopyObject},
+		{"SetObjectMeta", testSetObjectMeta},
 		{"ListObjects", testListObjects},
 		{"ListPagination", testListPagination},
 		{"Multipart", testMultipart},
@@ -321,6 +322,55 @@ func testCopyObject(t *testing.T, b storage.Backend) {
 	_, err = b.CopyObject(ctx(), storage.ObjectRef{Bucket: "src", Key: "nope"}, storage.ObjectRef{Bucket: "dst", Key: "x"}, storage.CopyOptions{})
 	assert.ErrorIs(t, err, storage.ErrNoSuchKey)
 	_, err = b.CopyObject(ctx(), storage.ObjectRef{Bucket: "src", Key: "k"}, storage.ObjectRef{Bucket: "nobkt", Key: "x"}, storage.CopyOptions{})
+	assert.ErrorIs(t, err, storage.ErrNoSuchBucket)
+}
+
+func testSetObjectMeta(t *testing.T, b storage.Backend) {
+	mustBucket(t, b, "bkt")
+	newMeta := storage.ObjectMeta{ContentType: "text/plain", User: map[string]string{"k": "v"}, ACL: "public-read"}
+
+	orig := put(t, b, "bkt", "plain", []byte("hello"))
+	time.Sleep(10 * time.Millisecond)
+	got, err := b.SetObjectMeta(ctx(), "bkt", "plain", newMeta)
+	require.NoError(t, err)
+	assert.Equal(t, orig.ETag, got.ETag)
+	assert.Equal(t, orig.Size, got.Size)
+	assert.True(t, orig.LastModified.Equal(got.LastModified))
+	assert.Equal(t, newMeta, got.Meta)
+	body, head := get(t, b, "bkt", "plain", nil)
+	assert.Equal(t, []byte("hello"), body)
+	assert.Equal(t, newMeta, head.Meta)
+	assert.Equal(t, orig.ETag, head.ETag)
+	assert.True(t, orig.LastModified.Equal(head.LastModified))
+
+	p1 := bytes.Repeat([]byte("a"), storage.MinPartSize)
+	p2 := []byte("tail")
+	id, err := b.CreateMultipartUpload(ctx(), "bkt", "mp", storage.ObjectMeta{})
+	require.NoError(t, err)
+	i1, err := b.UploadPart(ctx(), "bkt", "mp", id, 1, bytes.NewReader(p1), int64(len(p1)))
+	require.NoError(t, err)
+	i2, err := b.UploadPart(ctx(), "bkt", "mp", id, 2, bytes.NewReader(p2), int64(len(p2)))
+	require.NoError(t, err)
+	mp, err := b.CompleteMultipartUpload(ctx(), "bkt", "mp", id, []storage.CompletePart{
+		{PartNumber: 1, ETag: i1.ETag}, {PartNumber: 2, ETag: i2.ETag},
+	})
+	require.NoError(t, err)
+	time.Sleep(10 * time.Millisecond)
+	got, err = b.SetObjectMeta(ctx(), "bkt", "mp", newMeta)
+	require.NoError(t, err)
+	assert.Equal(t, mp.ETag, got.ETag)
+	assert.Equal(t, 2, got.PartsCount)
+	assert.Equal(t, mp.Size, got.Size)
+	assert.True(t, mp.LastModified.Equal(got.LastModified))
+	body, head = get(t, b, "bkt", "mp", nil)
+	assert.Equal(t, append(append([]byte{}, p1...), p2...), body)
+	assert.Equal(t, mp.ETag, head.ETag)
+	assert.Equal(t, 2, head.PartsCount)
+	assert.Equal(t, newMeta, head.Meta)
+
+	_, err = b.SetObjectMeta(ctx(), "bkt", "missing", newMeta)
+	assert.ErrorIs(t, err, storage.ErrNoSuchKey)
+	_, err = b.SetObjectMeta(ctx(), "nobucket", "k", newMeta)
 	assert.ErrorIs(t, err, storage.ErrNoSuchBucket)
 }
 

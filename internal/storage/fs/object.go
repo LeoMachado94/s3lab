@@ -259,6 +259,40 @@ func (b *Backend) CopyObject(ctx context.Context, src, dst storage.ObjectRef, op
 	return b.store(ctx, dst.Bucket, dst.Key, body, meta)
 }
 
+func (b *Backend) SetObjectMeta(ctx context.Context, bucket, key string, meta storage.ObjectMeta) (storage.ObjectInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	dir, err := b.bucketDir(bucket)
+	if err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	if err := storage.ValidateKey(key); err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	hash := keyHash(key)
+	metaPath := filepath.Join(shardDir(dir, hash), hash+metaSuffix)
+	l := b.keyLock(objectLockName(bucket, key))
+	l.Lock()
+	defer l.Unlock()
+	var rec objectRecord
+	if err := readJSON(metaPath, &rec); err != nil {
+		return storage.ObjectInfo{}, missingKey(err)
+	}
+	rec.Meta = meta
+	tmp, err := writeJSONTemp(b.tmpPath(), rec)
+	if err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	defer removeQuiet(tmp)
+	if err := os.Rename(tmp, metaPath); err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	return rec.ObjectInfo, nil
+}
+
 func (b *Backend) openCopySource(src, dst storage.ObjectRef) (*os.File, storage.ObjectInfo, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

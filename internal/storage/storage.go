@@ -36,6 +36,9 @@ type Backend interface {
 	HeadObject(ctx context.Context, bucket, key string) (ObjectInfo, error)
 	DeleteObject(ctx context.Context, bucket, key string) error
 	CopyObject(ctx context.Context, src, dst ObjectRef, opts CopyOptions) (ObjectInfo, error)
+	// SetObjectMeta replaces only the metadata; body, Size, ETag, PartsCount and
+	// LastModified are kept.
+	SetObjectMeta(ctx context.Context, bucket, key string, meta ObjectMeta) (ObjectInfo, error)
 	ListObjects(ctx context.Context, bucket string, opts ListOptions) (ListResult, error)
 
 	CreateMultipartUpload(ctx context.Context, bucket, key string, meta ObjectMeta) (uploadID string, err error)

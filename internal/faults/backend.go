@@ -100,6 +100,13 @@ func (b *backend) CopyObject(ctx context.Context, src, dst storage.ObjectRef, op
 	return b.next.CopyObject(ctx, src, dst, opts)
 }
 
+func (b *backend) SetObjectMeta(ctx context.Context, bucket, key string, meta storage.ObjectMeta) (storage.ObjectInfo, error) {
+	if err := b.inject(ctx, "SetObjectMeta", bucket, key); err != nil {
+		return storage.ObjectInfo{}, err
+	}
+	return b.next.SetObjectMeta(ctx, bucket, key, meta)
+}
+
 func (b *backend) ListObjects(ctx context.Context, bucket string, opts storage.ListOptions) (storage.ListResult, error) {
 	if err := b.inject(ctx, "ListObjects", bucket, ""); err != nil {
 		return storage.ListResult{}, err
