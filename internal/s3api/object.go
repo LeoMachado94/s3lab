@@ -46,7 +46,7 @@ func (o *objectBodyReader) Read(p []byte) (int, error) {
 	switch {
 	case err == io.EOF:
 		switch {
-		case o.expected >= 0 && o.n < o.expected:
+		case o.expected >= 0 && o.n != o.expected:
 			o.err = s3err.IncompleteBody
 		case o.md5 != nil && !bytes.Equal(o.md5.Sum(nil), o.wantMD5):
 			o.err = s3err.BadDigest
@@ -102,7 +102,22 @@ func objectParseMD5(v string) ([]byte, error) {
 	return sum, nil
 }
 
+var objectMissingSecurityHeader = s3err.Error{Code: "MissingSecurityHeader", Message: "Your request was missing a required header", Status: http.StatusBadRequest}
+
+// objectValidACL rejects an x-amz-acl value that is neither "private" nor a known canned ACL.
+func objectValidACL(v string) error {
+	n := strings.ToLower(strings.TrimSpace(v))
+	if n == "" || n == "private" || cannedACLs[n] {
+		return nil
+	}
+	return s3err.InvalidArgument.WithMessage("Unsupported ACL value: " + v)
+}
+
 func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, info *s3op.Info) {
+	if err := objectValidACL(r.Header.Get("x-amz-acl")); err != nil {
+		s3err.Write(w, r, err)
+		return
+	}
 	size, err := h.objectBodySize(r)
 	if err != nil {
 		s3err.Write(w, r, err)
@@ -296,6 +311,10 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, info *s3op.
 		s3err.Write(w, r, err)
 		return
 	}
+	if err := objectValidACL(r.Header.Get("x-amz-acl")); err != nil {
+		s3err.Write(w, r, err)
+		return
+	}
 	var replace bool
 	switch strings.ToUpper(r.Header.Get("x-amz-metadata-directive")) {
 	case "", "COPY":
@@ -389,8 +408,13 @@ func (h *Handler) putObjectACL(w http.ResponseWriter, r *http.Request, info *s3o
 		s3err.Write(w, r, err)
 		return
 	}
-	acl := cannedACL(r.Header.Get("x-amz-acl"))
-	if r.Header.Get("x-amz-acl") == "" {
+	hdr := r.Header.Get("x-amz-acl")
+	if err := objectValidACL(hdr); err != nil {
+		s3err.Write(w, r, err)
+		return
+	}
+	acl := cannedACL(hdr)
+	if hdr == "" {
 		if acl, err = objectACLFromBody(r); err != nil {
 			s3err.Write(w, r, err)
 			return
@@ -399,8 +423,7 @@ func (h *Handler) putObjectACL(w http.ResponseWriter, r *http.Request, info *s3o
 	if acl != obj.Meta.ACL {
 		meta := obj.Meta
 		meta.ACL = acl
-		ref := storage.ObjectRef{Bucket: info.Bucket, Key: info.Key}
-		if _, err := h.backend.CopyObject(r.Context(), ref, ref, storage.CopyOptions{ReplaceMeta: true, Meta: meta}); err != nil {
+		if _, err := h.backend.SetObjectMeta(r.Context(), info.Bucket, info.Key, meta); err != nil {
 			s3err.Write(w, r, err)
 			return
 		}
@@ -414,7 +437,7 @@ func objectACLFromBody(r *http.Request) (string, error) {
 		return "", err
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
-		return "", nil
+		return "", objectMissingSecurityHeader
 	}
 	var acp struct {
 		Grants []struct {

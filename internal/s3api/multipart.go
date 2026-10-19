@@ -23,6 +23,10 @@ import (
 const mpMaxListItems = 1000
 
 func (h *Handler) createMultipartUpload(w http.ResponseWriter, r *http.Request, info *s3op.Info) {
+	if err := objectValidACL(r.Header.Get("x-amz-acl")); err != nil {
+		s3err.Write(w, r, err)
+		return
+	}
 	id, err := h.backend.CreateMultipartUpload(r.Context(), info.Bucket, info.Key, metaFromHeaders(r.Header))
 	if err != nil {
 		s3err.Write(w, r, err)
@@ -80,6 +84,15 @@ func (h *Handler) uploadPartCopy(w http.ResponseWriter, r *http.Request, info *s
 		s3err.Write(w, r, err)
 		return
 	}
+	head, err := h.backend.HeadObject(r.Context(), src.Bucket, src.Key)
+	if err != nil {
+		s3err.Write(w, r, err)
+		return
+	}
+	if rng != nil && rng.End >= head.Size {
+		s3err.Write(w, r, s3err.InvalidRequest.WithMessage("The specified copy range is invalid for the source object size"))
+		return
+	}
 	rc, srcInfo, err := h.backend.GetObject(r.Context(), src.Bucket, src.Key, rng)
 	if err != nil {
 		s3err.Write(w, r, err)
@@ -89,10 +102,6 @@ func (h *Handler) uploadPartCopy(w http.ResponseWriter, r *http.Request, info *s
 
 	length := srcInfo.Size
 	if rng != nil {
-		if rng.End >= srcInfo.Size {
-			s3err.Write(w, r, s3err.InvalidRequest.WithMessage("The specified copy range is invalid for the source object size"))
-			return
-		}
 		length = rng.End - rng.Start + 1
 	}
 	if !mpCopyConditionsMet(r.Header, srcInfo) {
