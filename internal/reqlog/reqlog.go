@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -224,8 +225,9 @@ func (c *countingBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// Middleware records every request, reading op/bucket/key/error/fault from
-// s3op.Info set by upstream and downstream layers.
+// Middleware records every request from s3op.Info; it must run inside
+// s3op.Resolver.Middleware. BytesIn counts wire bytes (before aws-chunked
+// decoding); ErrorCode stays empty for 4xx/5xx responses nobody tagged.
 func Middleware(s *Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -241,7 +243,7 @@ func Middleware(s *Store) func(http.Handler) http.Handler {
 					Time:       start,
 					Method:     r.Method,
 					Path:       r.URL.Path,
-					Query:      r.URL.RawQuery,
+					Query:      redactQuery(r.URL.RawQuery),
 					Status:     rec.status,
 					DurationMs: math.Round(float64(time.Since(start))/float64(time.Millisecond)*100) / 100,
 					BytesIn:    body.n,
@@ -264,4 +266,24 @@ func Middleware(s *Store) func(http.Handler) http.Handler {
 			next.ServeHTTP(rec, r)
 		})
 	}
+}
+
+func redactQuery(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	pairs := strings.Split(raw, "&")
+	for i, p := range pairs {
+		name, _, ok := strings.Cut(p, "=")
+		if !ok {
+			continue
+		}
+		if dec, err := url.QueryUnescape(name); err == nil {
+			name = dec
+		}
+		if strings.EqualFold(name, "X-Amz-Signature") || strings.EqualFold(name, "X-Amz-Security-Token") {
+			pairs[i] = p[:strings.Index(p, "=")+1] + "REDACTED"
+		}
+	}
+	return strings.Join(pairs, "&")
 }

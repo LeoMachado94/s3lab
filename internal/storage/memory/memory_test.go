@@ -119,3 +119,21 @@ func TestCanceledContextAcrossOps(t *testing.T) {
 	assert.ErrorIs(t, b.Reset(ctx, ""), context.Canceled)
 	assert.ErrorIs(t, b.DeleteBucket(ctx, "bkt"), context.Canceled)
 }
+
+func TestCopyMultipartSourceGetsPlainETag(t *testing.T) {
+	ctx := context.Background()
+	b := New()
+	require.NoError(t, b.CreateBucket(ctx, "bkt"))
+	id, err := b.CreateMultipartUpload(ctx, "bkt", "src", storage.ObjectMeta{})
+	require.NoError(t, err)
+	p, err := b.UploadPart(ctx, "bkt", "src", id, 1, bytes.NewReader([]byte("hello")), 5)
+	require.NoError(t, err)
+	src, err := b.CompleteMultipartUpload(ctx, "bkt", "src", id, []storage.CompletePart{{PartNumber: 1, ETag: p.ETag}})
+	require.NoError(t, err)
+	require.Contains(t, src.ETag, "-")
+
+	got, err := b.CopyObject(ctx, storage.ObjectRef{Bucket: "bkt", Key: "src"}, storage.ObjectRef{Bucket: "bkt", Key: "dst"}, storage.CopyOptions{})
+	require.NoError(t, err)
+	assert.Regexp(t, `^[0-9a-f]{32}$`, got.ETag)
+	assert.Equal(t, 0, got.PartsCount)
+}

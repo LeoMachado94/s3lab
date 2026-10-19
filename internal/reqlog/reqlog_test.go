@@ -248,3 +248,17 @@ func TestMiddlewarePanicStillRecorded(t *testing.T) {
 	serve(t, s, func(w http.ResponseWriter, r *http.Request) { panic("boom") },
 		httptest.NewRequest(http.MethodGet, "/", nil))
 }
+
+func TestRedactQuery(t *testing.T) {
+	cases := map[string]string{
+		"":    "",
+		"x=1": "x=1",
+		"a=1&X-Amz-Signature=abc%2B&X-Amz-Credential=ak%2F2024&b": "a=1&X-Amz-Signature=REDACTED&X-Amz-Credential=ak%2F2024&b",
+		"x-amz-security-token=tok&x-amz-signature=s":              "x-amz-security-token=REDACTED&x-amz-signature=REDACTED",
+	}
+	for in, want := range cases {
+		if got := redactQuery(in); got != want {
+			t.Errorf("redactQuery(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
