@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"hash"
 	"io"
 	"net/http"
@@ -22,6 +23,10 @@ const (
 
 func errMalformedChunk(msg string) error {
 	return &Error{Code: "InvalidRequest", Message: "Malformed aws-chunked payload: " + msg, Status: http.StatusBadRequest}
+}
+
+func errMalformedDecodedLength() error {
+	return errMalformedChunk("decoded length differs from x-amz-decoded-content-length")
 }
 
 // chunkOpts configures an aws-chunked decoder. When signed is false chunk
@@ -88,6 +93,10 @@ func (c *chunkReader) Read(p []byte) (int, error) {
 	}
 	c.remaining -= int64(n)
 	c.total += int64(n)
+	if c.opts.declared >= 0 && c.total > c.opts.declared {
+		c.err = errMalformedDecodedLength()
+		return n, c.err
+	}
 	if err != nil && c.remaining > 0 {
 		if errors.Is(err, io.EOF) {
 			err = io.ErrUnexpectedEOF
@@ -107,10 +116,13 @@ func (c *chunkReader) Read(p []byte) (int, error) {
 func (c *chunkReader) readLine() (string, error) {
 	line, err := c.br.ReadSlice('\n')
 	if err != nil {
-		if errors.Is(err, io.EOF) {
+		switch {
+		case errors.Is(err, io.EOF):
 			return "", io.ErrUnexpectedEOF
+		case errors.Is(err, bufio.ErrBufferFull):
+			return "", errMalformedChunk("line too long")
 		}
-		return "", errMalformedChunk("line too long")
+		return "", fmt.Errorf("read chunk line: %w", err)
 	}
 	s, ok := strings.CutSuffix(string(line), "\r\n")
 	if !ok {
@@ -158,7 +170,10 @@ func (c *chunkReader) endChunk() error {
 	c.inChunk = false
 	var crlf [2]byte
 	if _, err := io.ReadFull(c.br, crlf[:]); err != nil {
-		return io.ErrUnexpectedEOF
+		if errors.Is(err, io.EOF) {
+			return io.ErrUnexpectedEOF
+		}
+		return fmt.Errorf("read chunk end: %w", err)
 	}
 	if string(crlf[:]) != "\r\n" {
 		return errMalformedChunk("missing CRLF after chunk data")
@@ -199,7 +214,7 @@ func (c *chunkReader) finish() error {
 		}
 	}
 	if c.opts.declared >= 0 && c.total != c.opts.declared {
-		return errMalformedChunk("decoded length differs from x-amz-decoded-content-length")
+		return errMalformedDecodedLength()
 	}
 	return nil
 }

@@ -10,7 +10,9 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/LeoMachado94/s3lab/internal/s3op"
@@ -50,6 +52,7 @@ var (
 	ErrRequestTimeTooSkewed  = &Error{"RequestTimeTooSkewed", "The difference between the request time and the server's time is too large.", http.StatusForbidden}
 	ErrContentSHA256Mismatch = &Error{"XAmzContentSHA256Mismatch", "The provided 'x-amz-content-sha256' header does not match what was computed.", http.StatusBadRequest}
 	ErrUnsupportedSignature  = &Error{"InvalidRequest", "Please use AWS4-HMAC-SHA256.", http.StatusBadRequest}
+	ErrHeadersNotSigned      = &Error{"AccessDenied", "There were headers present in the request which were not signed", http.StatusForbidden}
 	ErrMissingDate           = &Error{"AccessDenied", "AWS authentication requires a valid Date or x-amz-date header", http.StatusForbidden}
 )
 
@@ -120,6 +123,9 @@ func (v *Verifier) Verify(r *http.Request) (Result, error) {
 	if !ok {
 		return Result{}, ErrInvalidAccessKeyID
 	}
+	if !presigned && hasUnsignedAmzHeader(r, sr.signedHeaders) {
+		return Result{}, ErrHeadersNotSigned
+	}
 	t, err := v.requestTime(r, sr)
 	if err != nil {
 		return Result{}, err
@@ -153,6 +159,17 @@ func (v *Verifier) Verify(r *http.Request) (Result, error) {
 		method = s3op.AuthPresigned
 	}
 	return Result{AccessKey: sr.cred.accessKey, Method: method}, nil
+}
+
+// hasUnsignedAmzHeader reports whether r carries an x-amz-* header missing from signed.
+func hasUnsignedAmzHeader(r *http.Request, signed []string) bool {
+	for name := range r.Header {
+		l := strings.ToLower(name)
+		if strings.HasPrefix(l, "x-amz-") && !slices.Contains(signed, l) {
+			return true
+		}
+	}
+	return false
 }
 
 // wrapBody installs the payload verification or aws-chunked decoding reader.

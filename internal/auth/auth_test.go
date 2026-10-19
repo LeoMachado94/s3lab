@@ -494,13 +494,16 @@ func signedChunks(seed string, chunks []string, trailer string) string {
 	return b.String()
 }
 
-func streamingRequest(t *testing.T, hash string, decoded string, build func(seed string) string) *http.Request {
+func streamingRequest(t *testing.T, hash string, decoded string, build func(seed string) string, extra ...string) *http.Request {
 	t.Helper()
 	spec := signSpec{method: http.MethodPut, path: "/b/k", hash: hash, headers: map[string]string{
 		"Content-Encoding": "aws-chunked",
 	}}
 	if decoded != "" {
 		spec.headers["X-Amz-Decoded-Content-Length"] = decoded
+	}
+	for i := 0; i+1 < len(extra); i += 2 {
+		spec.headers[extra[i]] = extra[i+1]
 	}
 	r := spec.sign(t)
 	body := build(seedFrom(r))
@@ -624,8 +627,7 @@ func TestStreamingSigned(t *testing.T) {
 
 func TestStreamingUnsignedTrailer(t *testing.T) {
 	body := "5\r\nhello\r\n6\r\n world\r\n0\r\nx-amz-checksum-crc32:AAAAAA==\r\n\r\n"
-	r := streamingRequest(t, streamUnsignedTrailer, "11", func(string) string { return body })
-	r.Header.Set("X-Amz-Trailer", "x-amz-checksum-crc32")
+	r := streamingRequest(t, streamUnsignedTrailer, "11", func(string) string { return body }, "X-Amz-Trailer", "x-amz-checksum-crc32")
 	_, err := newVerifier().Verify(r)
 	require.NoError(t, err)
 	assert.EqualValues(t, 11, r.ContentLength)
