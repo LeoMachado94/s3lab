@@ -118,13 +118,15 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*Server, error
 	s.s3 = s.buildS3(faults.WrapBackend(raw, s.faults))
 
 	if cfg.ConsoleEnabled {
-		// TODO: wire console.Deps{AllowedHosts, MaxObjectSize, Done}
 		s.console = console.New(console.Deps{
-			Backend:  raw,
-			Requests: s.requests,
-			Faults:   s.faults,
-			Seeder:   seeder,
-			Logger:   s.log,
+			Backend:       raw,
+			Requests:      s.requests,
+			Faults:        s.faults,
+			Seeder:        seeder,
+			Logger:        s.log,
+			AllowedHosts:  cfg.ConsoleAllowedHosts,
+			MaxObjectSize: cfg.MaxObjectSize,
+			Done:          s.shutdownDone(),
 			Info: console.Info{
 				Version:            s.version,
 				Region:             cfg.Region,

@@ -176,7 +176,7 @@ func TestConsole(t *testing.T) {
 	s, _ := newServer(t, cfg)
 	require.NotNil(t, s.ConsoleHandler())
 	rec := httptest.NewRecorder()
-	s.ConsoleHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_s3lab/health", http.NoBody))
+	s.ConsoleHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://localhost:9001/_s3lab/health", http.NoBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	cfg.ConsoleEnabled = false
@@ -189,7 +189,7 @@ func TestSeedAtStartup(t *testing.T) {
 	cfg.Buckets = []string{"one", "two"}
 	s, _ := newServer(t, cfg)
 	rec := httptest.NewRecorder()
-	s.ConsoleHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_s3lab/buckets", http.NoBody))
+	s.ConsoleHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://localhost:9001/_s3lab/buckets", http.NoBody))
 	assert.Contains(t, rec.Body.String(), `"one"`)
 	assert.Contains(t, rec.Body.String(), `"two"`)
 
