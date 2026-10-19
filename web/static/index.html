@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>s3lab console</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#/buckets">s3lab</a>
+    <nav class="tabs" aria-label="Main">
+      <a href="#/buckets" data-nav="buckets">Buckets</a>
+      <a href="#/requests" data-nav="requests">Requests</a>
+      <a href="#/faults" data-nav="faults">Faults</a>
+    </nav>
+    <div class="meta" id="meta" aria-label="Server info"></div>
+    <div class="actions" id="actions"></div>
+  </header>
+  <section id="connect" class="connect" hidden aria-label="Connection details"></section>
+  <main id="view" tabindex="-1"></main>
+  <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+  <noscript><p class="pad">The s3lab console needs JavaScript.</p></noscript>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
