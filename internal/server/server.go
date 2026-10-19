@@ -256,8 +256,8 @@ func debugLog(log *slog.Logger) func(http.Handler) http.Handler {
 				}
 				attrs := []any{"method", r.Method, "status", status, "duration", time.Since(start).Round(time.Microsecond)}
 				if info := s3op.FromContext(r.Context()); info != nil {
-					attrs = append(attrs, "op", string(info.Op), "bucket", info.Bucket, "key", info.Key,
-						"error", info.ErrorCode)
+					attrs = append(attrs, "requestId", info.RequestID, "op", string(info.Op), "bucket", info.Bucket,
+						"key", info.Key, "error", info.ErrorCode)
 				}
 				log.Debug("request", attrs...)
 			}()

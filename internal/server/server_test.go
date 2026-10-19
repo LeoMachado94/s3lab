@@ -249,6 +249,7 @@ func TestDebugLogging(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, buf.String(), "op=HeadBucket")
 	assert.Contains(t, buf.String(), "status=200")
+	assert.Contains(t, buf.String(), "requestId=")
 }
 
 func TestRunStartsAndStops(t *testing.T) {
