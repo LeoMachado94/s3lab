@@ -578,8 +578,45 @@ func TestObjectACL(t *testing.T) {
 	rec = do(t, h, testReq{method: "GET", target: "/bkt/missing?acl"})
 	requireS3Error(t, rec, 404, "NoSuchKey")
 
+	require.NotContains(t, body, "AllUsers", "private by default")
+
 	rec = do(t, h, testReq{method: "PUT", target: "/bkt/key?acl", body: strings.NewReader("<AccessControlPolicy/>"), headers: map[string]string{"x-amz-acl": "public-read"}})
 	require.Equal(t, 200, rec.Code)
+	got, err := b.HeadObject(t.Context(), "bkt", "key")
+	require.NoError(t, err)
+	require.Equal(t, "public-read", got.Meta.ACL)
+	rec = do(t, h, testReq{method: "GET", target: "/bkt/key?acl"})
+	require.Contains(t, rec.Body.String(), "<URI>http://acs.amazonaws.com/groups/global/AllUsers</URI>")
+	require.Contains(t, rec.Body.String(), "<Permission>READ</Permission>")
+
+	private := `<AccessControlPolicy><AccessControlList><Grant><Grantee><ID>s3lab</ID></Grantee><Permission>FULL_CONTROL</Permission></Grant></AccessControlList></AccessControlPolicy>`
+	rec = do(t, h, testReq{method: "PUT", target: "/bkt/key?acl", body: strings.NewReader(private)})
+	require.Equal(t, 200, rec.Code)
+	got, err = b.HeadObject(t.Context(), "bkt", "key")
+	require.NoError(t, err)
+	require.Empty(t, got.Meta.ACL, "body without public grants means private")
+
+	public := `<AccessControlPolicy><AccessControlList><Grant><Grantee><URI>http://acs.amazonaws.com/groups/global/AllUsers</URI></Grantee><Permission>READ</Permission></Grant></AccessControlList></AccessControlPolicy>`
+	rec = do(t, h, testReq{method: "PUT", target: "/bkt/key?acl", body: strings.NewReader(public)})
+	require.Equal(t, 200, rec.Code)
+	got, err = b.HeadObject(t.Context(), "bkt", "key")
+	require.NoError(t, err)
+	require.Equal(t, "public-read", got.Meta.ACL)
+	data, _, err := b.GetObject(t.Context(), "bkt", "key", nil)
+	require.NoError(t, err)
+	content, _ := io.ReadAll(data)
+	_ = data.Close()
+	require.Equal(t, "x", string(content), "acl change keeps the body")
+
+	rec = do(t, h, testReq{method: "PUT", target: "/bkt/key?acl", body: strings.NewReader("<not-xml")})
+	requireS3Error(t, rec, 400, "MalformedXML")
+
+	rec = do(t, h, testReq{method: "PUT", target: "/bkt/pub", body: strings.NewReader("p"), headers: map[string]string{"x-amz-acl": "public-read"}})
+	require.Equal(t, 200, rec.Code)
+	got, err = b.HeadObject(t.Context(), "bkt", "pub")
+	require.NoError(t, err)
+	require.Equal(t, "public-read", got.Meta.ACL, "x-amz-acl on PutObject is stored")
+
 	rec = do(t, h, testReq{method: "PUT", target: "/bkt/missing?acl", body: strings.NewReader("x")})
 	requireS3Error(t, rec, 404, "NoSuchKey")
 }

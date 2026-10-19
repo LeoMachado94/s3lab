@@ -39,9 +39,15 @@ build:
 docker-build:
 	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
 
+COMPAT = docker compose -f test/compat/compose.yaml
+
+# Clients run in parallel against one server; fail if any client exits non-zero.
 compat:
-	docker compose -f test/compat/compose.yaml up --build --abort-on-container-failure --exit-code-from runner; \
-	rc=$$?; docker compose -f test/compat/compose.yaml down -v; exit $$rc
+	$(COMPAT) up --build --detach --wait s3lab; \
+	$(COMPAT) up --build awscli boto3 php; \
+	bad=$$($(COMPAT) ps -a --format '{{.Service}}={{.ExitCode}}' awscli boto3 php | grep -v '=0$$'); \
+	$(COMPAT) down -v; \
+	if [ -n "$$bad" ]; then echo "compat failed: $$bad"; exit 1; fi
 
 run:
 	docker compose up --build s3lab

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/base64"
+	"encoding/xml"
 	"errors"
 	"hash"
 	"io"
@@ -336,27 +337,110 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, info *s3op.
 	})
 }
 
+const (
+	objectAllUsersURI  = "http://acs.amazonaws.com/groups/global/AllUsers"
+	objectAuthUsersURI = "http://acs.amazonaws.com/groups/global/AuthenticatedUsers"
+)
+
 func (h *Handler) getObjectACL(w http.ResponseWriter, r *http.Request, info *s3op.Info) {
-	if _, err := h.backend.HeadObject(r.Context(), info.Bucket, info.Key); err != nil {
+	obj, err := h.backend.HeadObject(r.Context(), info.Bucket, info.Key)
+	if err != nil {
 		s3err.Write(w, r, err)
 		return
 	}
 	acp := AccessControlPolicy{Xmlns: s3Namespace, Owner: defaultOwner}
-	var g Grant
-	g.Grantee.XMLNSXSI = "http://www.w3.org/2001/XMLSchema-instance"
-	g.Grantee.XSIType = "CanonicalUser"
-	g.Grantee.ID = defaultOwner.ID
-	g.Grantee.DisplayName = defaultOwner.DisplayName
-	g.Permission = "FULL_CONTROL"
-	acp.AccessControlList.Grants = []Grant{g}
+	acp.AccessControlList.Grants = objectGrants(obj.Meta.ACL)
 	writeXML(w, r, http.StatusOK, acp)
 }
 
+func objectGrants(acl string) []Grant {
+	owner := objectGrant("CanonicalUser", "", "FULL_CONTROL")
+	owner.Grantee.ID = defaultOwner.ID
+	owner.Grantee.DisplayName = defaultOwner.DisplayName
+	grants := []Grant{owner}
+	switch acl {
+	case "public-read":
+		grants = append(grants, objectGrant("Group", objectAllUsersURI, "READ"))
+	case "public-read-write":
+		grants = append(grants, objectGrant("Group", objectAllUsersURI, "READ"), objectGrant("Group", objectAllUsersURI, "WRITE"))
+	case "authenticated-read":
+		grants = append(grants, objectGrant("Group", objectAuthUsersURI, "READ"))
+	}
+	return grants
+}
+
+func objectGrant(xsiType, uri, permission string) Grant {
+	var g Grant
+	g.Grantee.XMLNSXSI = "http://www.w3.org/2001/XMLSchema-instance"
+	g.Grantee.XSIType = xsiType
+	g.Grantee.URI = uri
+	g.Permission = permission
+	return g
+}
+
+// putObjectACL accepts a canned x-amz-acl header or an AccessControlPolicy body;
+// body grants are reduced to the closest canned ACL.
 func (h *Handler) putObjectACL(w http.ResponseWriter, r *http.Request, info *s3op.Info) {
-	if _, err := h.backend.HeadObject(r.Context(), info.Bucket, info.Key); err != nil {
+	obj, err := h.backend.HeadObject(r.Context(), info.Bucket, info.Key)
+	if err != nil {
 		s3err.Write(w, r, err)
 		return
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
+	acl := cannedACL(r.Header.Get("x-amz-acl"))
+	if r.Header.Get("x-amz-acl") == "" {
+		if acl, err = objectACLFromBody(r); err != nil {
+			s3err.Write(w, r, err)
+			return
+		}
+	}
+	if acl != obj.Meta.ACL {
+		meta := obj.Meta
+		meta.ACL = acl
+		ref := storage.ObjectRef{Bucket: info.Bucket, Key: info.Key}
+		if _, err := h.backend.CopyObject(r.Context(), ref, ref, storage.CopyOptions{ReplaceMeta: true, Meta: meta}); err != nil {
+			s3err.Write(w, r, err)
+			return
+		}
+	}
 	writeEmpty(w, http.StatusOK)
+}
+
+func objectACLFromBody(r *http.Request) (string, error) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return "", nil
+	}
+	var acp struct {
+		Grants []struct {
+			URI        string `xml:"Grantee>URI"`
+			Permission string `xml:"Permission"`
+		} `xml:"AccessControlList>Grant"`
+	}
+	if err := xml.Unmarshal(body, &acp); err != nil {
+		return "", s3err.MalformedXML
+	}
+	read, write, authRead := false, false, false
+	for _, g := range acp.Grants {
+		switch {
+		case g.URI == objectAllUsersURI && (g.Permission == "READ" || g.Permission == "FULL_CONTROL"):
+			read = true
+			write = write || g.Permission == "FULL_CONTROL"
+		case g.URI == objectAllUsersURI && g.Permission == "WRITE":
+			write = true
+		case g.URI == objectAuthUsersURI && g.Permission == "READ":
+			authRead = true
+		}
+	}
+	switch {
+	case read && write:
+		return "public-read-write", nil
+	case read:
+		return "public-read", nil
+	case authRead:
+		return "authenticated-read", nil
+	}
+	return "", nil
 }

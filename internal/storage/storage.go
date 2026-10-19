@@ -71,6 +71,8 @@ type ObjectMeta struct {
 	Expires            string
 	// User holds x-amz-meta-* values keyed by lowercase name without prefix.
 	User map[string]string
+	// ACL is the canned ACL ("" means private). Stored and reported, never enforced.
+	ACL string
 }
 
 type ObjectInfo struct {

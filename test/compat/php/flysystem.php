@@ -59,7 +59,8 @@ step('listContents deep and shallow');
 $fs->write('docs/sub/deep.txt', 'd');
 $deep = array_map(fn (StorageAttributes $a) => $a->path(), $fs->listContents('docs', true)->toArray());
 sort($deep);
-foreach (['docs/hello.txt', 'docs/stream.bin', 'docs/sub', 'docs/sub/deep.txt'] as $p) {
+// S3 has no real directories: a deep listing only returns keys, like on AWS.
+foreach (['docs/hello.txt', 'docs/stream.bin', 'docs/sub/deep.txt'] as $p) {
     check(in_array($p, $deep, true), "$p missing from deep listing: ".implode(',', $deep));
 }
 $shallow = array_map(fn (StorageAttributes $a) => $a->path(), $fs->listContents('docs', false)->toArray());

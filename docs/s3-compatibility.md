@@ -11,7 +11,7 @@ s3lab implements the part of the S3 API that applications and SDKs use day to da
 | Listing | `ListObjectsV2` (prefix, delimiter, `max-keys`, `start-after`, continuation token, `encoding-type=url`, `fetch-owner`), `ListObjects` (v1, marker) |
 | Objects | `PutObject`, `GetObject`, `HeadObject`, `DeleteObject`, `DeleteObjects` (batch, quiet mode), `CopyObject` (`COPY`/`REPLACE` metadata directive, copy conditions) |
 | Multipart | `CreateMultipartUpload`, `UploadPart`, `UploadPartCopy` (with `x-amz-copy-source-range`), `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListParts`, `ListMultipartUploads` |
-| ACL | `GetObjectAcl` (always owner `FULL_CONTROL`), `PutObjectAcl` (accepted and ignored) |
+| Object ACLs | Canned ACLs (`x-amz-acl` on `PutObject`, `CopyObject`, `CreateMultipartUpload`, `PutObjectAcl`; or an `AccessControlPolicy` body) are stored and returned by `GetObjectAcl`, so visibility checks (Flysystem/Laravel `visibility()`) work. They are **not enforced**: access is decided by credentials / `S3LAB_ANONYMOUS` |
 | CORS | Preflight `OPTIONS` and response headers, configured globally via `S3LAB_CORS_ORIGINS` |
 
 ### Object features

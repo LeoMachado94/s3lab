@@ -68,7 +68,22 @@ func metaFromHeaders(h http.Header) storage.ObjectMeta {
 	if m.ContentType == "" {
 		m.ContentType = "binary/octet-stream"
 	}
+	m.ACL = cannedACL(h.Get("x-amz-acl"))
 	return m
+}
+
+var cannedACLs = map[string]bool{
+	"public-read": true, "public-read-write": true, "authenticated-read": true,
+	"bucket-owner-read": true, "bucket-owner-full-control": true, "aws-exec-read": true,
+}
+
+// cannedACL normalises x-amz-acl; "private" and unknown values map to "".
+func cannedACL(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if cannedACLs[v] {
+		return v
+	}
+	return ""
 }
 
 // aws-chunked is a transfer detail and must not be persisted.

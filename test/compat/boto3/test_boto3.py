@@ -111,7 +111,7 @@ def main():
         config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, retries={"max_attempts": 5, "mode": "standard"}),
     )
     retrying.put_object(Bucket=BUCKET, Key="py/retry.txt", Body=b"ok")
-    puts = admin("GET", "/_s3lab/requests", params={"bucket": BUCKET, "op": "PutObject"}).json()["entries"]
+    puts = admin("GET", "/_s3lab/requests", params={"bucket": BUCKET, "op": "PutObject", "key": "py/retry.txt"}).json()["entries"]
     statuses = [e["status"] for e in puts]
     assert statuses == [503, 503, 200], statuses
 
@@ -120,7 +120,7 @@ def main():
     noretry = boto3.client(
         "s3",
         endpoint_url=ENDPOINT,
-        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, retries={"max_attempts": 1}),
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, retries={"total_max_attempts": 1, "mode": "standard"}),
     )
     try:
         noretry.get_object(Bucket=BUCKET, Key="py/retry.txt")
