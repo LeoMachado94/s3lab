@@ -315,3 +315,36 @@ func TestRunConsoleDisabled(t *testing.T) {
 	cancel()
 	require.NoError(t, <-done)
 }
+
+func TestRunStopsLongRequests(t *testing.T) {
+	s, err := New(t.Context(), testConfig(), WithLogger(quietLogger()))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- s.Run(ctx) }()
+	require.Eventually(t, func() bool { a, _ := s.Addrs(); return a != "" }, 3*time.Second, 10*time.Millisecond)
+	_, consoleAddr := s.Addrs()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+consoleAddr+"/_s3lab/requests/stream", http.NoBody)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return with an open SSE request")
+	}
+	assert.Less(t, time.Since(start), 5*time.Second)
+	select {
+	case <-s.shutdownDone():
+	default:
+		t.Fatal("shutdownDone not closed")
+	}
+}

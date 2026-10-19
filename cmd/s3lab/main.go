@@ -20,6 +20,10 @@ var version = "dev"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-ctx.Done()
+		stop() // restore default handling so a second signal kills the process
+	}()
 	code := run(ctx, os.Args[1:], os.LookupEnv, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
@@ -59,6 +63,7 @@ func serve(ctx context.Context, args []string, lookup func(string) (string, bool
 }
 
 func healthcheck(ctx context.Context, lookup func(string) (string, bool), stderr io.Writer) int {
+	// Ports come from env only; command-line flags are not re-read here.
 	cfg, err := config.LoadWithLookup(nil, lookup)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "healthcheck: %v\n", err)
@@ -75,21 +80,26 @@ func healthcheck(ctx context.Context, lookup func(string) (string, bool), stderr
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	url := "http://" + net.JoinHostPort("127.0.0.1", port) + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "healthcheck: %v\n", err)
-		return 1
+	var lastErr error
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		url := "http://" + net.JoinHostPort(host, port) + path
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "healthcheck: %v\n", err)
+			return 1
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			_, _ = fmt.Fprintf(stderr, "healthcheck: %s returned %d\n", url, resp.StatusCode)
+			return 1
+		}
+		return 0
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "healthcheck: %v\n", err)
-		return 1
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		_, _ = fmt.Fprintf(stderr, "healthcheck: %s returned %d\n", url, resp.StatusCode)
-		return 1
-	}
-	return 0
+	_, _ = fmt.Fprintf(stderr, "healthcheck: %v\n", lastErr)
+	return 1
 }

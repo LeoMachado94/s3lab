@@ -42,6 +42,9 @@ type Server struct {
 	s3       http.Handler
 	console  http.Handler
 
+	done     chan struct{}
+	doneOnce sync.Once
+
 	mu          sync.Mutex
 	s3Addr      string
 	consoleAddr string
@@ -71,7 +74,7 @@ func newLogger(cfg config.Config) *slog.Logger {
 // New builds the backend, seeds it and assembles both handlers. It does not
 // listen.
 func New(ctx context.Context, cfg config.Config, opts ...Option) (*Server, error) {
-	s := &Server{cfg: cfg, version: "dev"}
+	s := &Server{cfg: cfg, version: "dev", done: make(chan struct{})}
 	for _, o := range opts {
 		o(s)
 	}
@@ -115,6 +118,7 @@ func New(ctx context.Context, cfg config.Config, opts ...Option) (*Server, error
 	s.s3 = s.buildS3(faults.WrapBackend(raw, s.faults))
 
 	if cfg.ConsoleEnabled {
+		// TODO: wire console.Deps{AllowedHosts, MaxObjectSize, Done}
 		s.console = console.New(console.Deps{
 			Backend:  raw,
 			Requests: s.requests,
@@ -278,9 +282,14 @@ func (s *Server) Addrs() (s3, console string) {
 	return s.s3Addr, s.consoleAddr
 }
 
-func newHTTPServer(h http.Handler) *http.Server {
+// shutdownDone is closed when Run begins shutting down, so long-lived
+// handlers (SSE) can return.
+func (s *Server) shutdownDone() <-chan struct{} { return s.done }
+
+func newHTTPServer(h http.Handler, base context.Context) *http.Server {
 	return &http.Server{
 		Handler:           h,
+		BaseContext:       func(net.Listener) context.Context { return base },
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
@@ -312,10 +321,12 @@ func (s *Server) Run(ctx context.Context) error {
 	s3Addr := s.s3Addr
 	s.mu.Unlock()
 
-	servers := []*http.Server{newHTTPServer(s.s3)}
+	baseCtx, baseCancel := context.WithCancel(context.WithoutCancel(ctx))
+	defer baseCancel()
+	servers := []*http.Server{newHTTPServer(s.s3, baseCtx)}
 	lns := []net.Listener{s3Ln}
 	if consoleLn != nil {
-		servers = append(servers, newHTTPServer(s.console))
+		servers = append(servers, newHTTPServer(s.console, baseCtx))
 		lns = append(lns, consoleLn)
 	}
 
@@ -331,6 +342,8 @@ func (s *Server) Run(ctx context.Context) error {
 	case serveErr = <-errCh:
 	}
 
+	s.doneOnce.Do(func() { close(s.done) })
+	baseCancel()
 	shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownGrace)
 	defer cancel()
 	var wg sync.WaitGroup

@@ -118,3 +118,19 @@ func TestServeMinioStyleArgs(t *testing.T) {
 	cancel()
 	assert.Equal(t, 0, <-done, errOut.String())
 }
+
+func TestHealthcheckIPv6Fallback(t *testing.T) {
+	l, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skip("ipv6 loopback unavailable")
+	}
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	_ = ts.Listener.Close()
+	ts.Listener = l
+	ts.Start()
+	defer ts.Close()
+	_, p, _ := net.SplitHostPort(l.Addr().String())
+	var out, errOut bytes.Buffer
+	code := run(t.Context(), []string{"healthcheck"}, env(map[string]string{"S3LAB_CONSOLE_ADDR": ":" + p}), &out, &errOut)
+	assert.Equal(t, 0, code, errOut.String())
+}
