@@ -3,9 +3,12 @@
 // Layout (keys are never used as paths, only their SHA-256):
 //
 //	<root>/buckets/<bucket>/bucket.json
-//	<root>/buckets/<bucket>/objects/<hash[:2]>/<hash>.data|.json
+//	<root>/buckets/<bucket>/objects/<hash[:2]>/<hash>.json   metadata, names its DataFile
+//	<root>/buckets/<bucket>/objects/<hash[:2]>/<hash>.<rand>.data   body, one per version
 //	<root>/buckets/<bucket>/uploads/<uploadID>/upload.json, part-NNNNN(.json)
-//	<root>/buckets/<bucket>/tmp/   staging area, same filesystem as the rest
+//	<root>/tmp/   staging area shared by all buckets, swept on startup
+//
+// The metadata rename is the single atomic publish step of an object version.
 package fs
 
 import (
@@ -19,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,8 +48,9 @@ var _ storage.Backend = (*Backend)(nil)
 // Backend stores buckets, objects and multipart uploads under a root directory.
 type Backend struct {
 	root string
-	// mu guards bucket structure: object operations hold it shared,
-	// bucket create/delete/reset hold it exclusively.
+	// mu guards bucket structure: commits and short lookups hold it shared,
+	// bucket create/delete/reset hold it exclusively. Never held while
+	// streaming a body. Lock order: upload lock, then mu, then key lock.
 	mu    sync.RWMutex
 	locks sync.Map // name -> *sync.RWMutex
 }
@@ -63,7 +68,64 @@ func New(root string) (*Backend, error) {
 	if err := os.MkdirAll(filepath.Join(abs, bucketsDir), dirPerm); err != nil {
 		return nil, fmt.Errorf("fs: create root: %w", err)
 	}
-	return &Backend{root: abs}, nil
+	b := &Backend{root: abs}
+	b.sweep()
+	if err := os.MkdirAll(b.tmpPath(), dirPerm); err != nil {
+		return nil, fmt.Errorf("fs: create tmp: %w", err)
+	}
+	return b, nil
+}
+
+// sweep removes staging leftovers and unreferenced data files after a crash. Best effort.
+func (b *Backend) sweep() {
+	_ = os.RemoveAll(b.tmpPath())
+	buckets, err := os.ReadDir(b.bucketsPath())
+	if err != nil {
+		return
+	}
+	for _, e := range buckets {
+		dir := filepath.Join(b.bucketsPath(), e.Name())
+		_ = os.RemoveAll(filepath.Join(dir, tmpDir))
+		sweepOrphanData(filepath.Join(dir, objectsDir))
+	}
+}
+
+func sweepOrphanData(objects string) {
+	shards, err := os.ReadDir(objects)
+	if err != nil {
+		return
+	}
+	for _, sh := range shards {
+		shard := filepath.Join(objects, sh.Name())
+		entries, err := os.ReadDir(shard)
+		if err != nil {
+			continue
+		}
+		live := make(map[string]bool)
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), metaSuffix) {
+				var rec objectRecord
+				if readJSON(filepath.Join(shard, e.Name()), &rec) == nil {
+					live[filepath.Base(rec.DataFile)] = true
+				}
+			}
+		}
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), dataSuffix) && !live[e.Name()] {
+				removeQuiet(filepath.Join(shard, e.Name()))
+			}
+		}
+	}
+}
+
+func (b *Backend) tmpPath() string { return filepath.Join(b.root, tmpDir) }
+
+// requireBucket is a short existence check; it must not be held across body streams.
+func (b *Backend) requireBucket(name string) error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	_, err := b.bucketDir(name)
+	return err
 }
 
 func (b *Backend) bucketsPath() string { return filepath.Join(b.root, bucketsDir) }
@@ -137,7 +199,7 @@ func (b *Backend) CreateBucket(ctx context.Context, bucket string) error {
 		return err
 	}
 	// bucket.json is written last: it marks the bucket as fully created.
-	tmp, err := writeJSONTemp(filepath.Join(dir, tmpDir), bucketRecord{Name: bucket, CreatedAt: time.Now().UTC()})
+	tmp, err := writeJSONTemp(b.tmpPath(), bucketRecord{Name: bucket, CreatedAt: time.Now().UTC()})
 	if err != nil {
 		return err
 	}
@@ -146,7 +208,7 @@ func (b *Backend) CreateBucket(ctx context.Context, bucket string) error {
 }
 
 func initBucketDirs(dir string) error {
-	for _, sub := range []string{objectsDir, uploadsDir, tmpDir} {
+	for _, sub := range []string{objectsDir, uploadsDir} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), dirPerm); err != nil {
 			return err
 		}
@@ -229,7 +291,7 @@ func (b *Backend) Reset(ctx context.Context, bucket string) error {
 	if err != nil {
 		return err
 	}
-	for _, sub := range []string{objectsDir, uploadsDir, tmpDir} {
+	for _, sub := range []string{objectsDir, uploadsDir} {
 		if err := os.RemoveAll(filepath.Join(dir, sub)); err != nil {
 			return err
 		}

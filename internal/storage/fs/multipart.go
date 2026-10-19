@@ -72,14 +72,27 @@ func noUpload(err error) error {
 	return err
 }
 
-func (b *Backend) CreateMultipartUpload(ctx context.Context, bucket, key string, meta storage.ObjectMeta) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
+// withUpload resolves the bucket and upload under b.mu shared and runs fn. The
+// caller holds the upload lock (lock order: upload lock, then b.mu).
+func (b *Backend) withUpload(bucket, key, id string, fn func(dir, udir string, rec uploadRecord) error) error {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	dir, err := b.bucketDir(bucket)
 	if err != nil {
+		return err
+	}
+	udir, rec, err := loadUpload(dir, key, id)
+	if err != nil {
+		return err
+	}
+	return fn(dir, udir, rec)
+}
+
+func (b *Backend) CreateMultipartUpload(ctx context.Context, bucket, key string, meta storage.ObjectMeta) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := b.requireBucket(bucket); err != nil {
 		return "", err
 	}
 	if err := storage.ValidateKey(key); err != nil {
@@ -91,7 +104,7 @@ func (b *Backend) CreateMultipartUpload(ctx context.Context, bucket, key string,
 	}
 	id := hex.EncodeToString(raw)
 	// Built in tmp and renamed so listings never see a half-written upload.
-	staging, err := os.MkdirTemp(filepath.Join(dir, tmpDir), "upload-*")
+	staging, err := os.MkdirTemp(b.tmpPath(), "upload-*")
 	if err != nil {
 		return "", err
 	}
@@ -104,8 +117,14 @@ func (b *Backend) CreateMultipartUpload(ctx context.Context, bucket, key string,
 	if err := os.Rename(tmp, filepath.Join(staging, uploadFile)); err != nil {
 		return "", err
 	}
-	if err := os.Rename(staging, filepath.Join(dir, uploadsDir, id)); err != nil {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	dir, err := b.bucketDir(bucket)
+	if err != nil {
 		return "", err
+	}
+	if err := os.Rename(staging, filepath.Join(dir, uploadsDir, id)); err != nil {
+		return "", noUpload(err)
 	}
 	return id, nil
 }
@@ -117,10 +136,7 @@ func (b *Backend) UploadPart(ctx context.Context, bucket, key, uploadID string, 
 	if partNumber < 1 || partNumber > storage.MaxPartNumber {
 		return storage.PartInfo{}, storage.ErrInvalidPartNumber
 	}
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	dir, err := b.bucketDir(bucket)
-	if err != nil {
+	if err := b.requireBucket(bucket); err != nil {
 		return storage.PartInfo{}, err
 	}
 	l, err := b.uploadLock(bucket, uploadID)
@@ -128,30 +144,34 @@ func (b *Backend) UploadPart(ctx context.Context, bucket, key, uploadID string, 
 		return storage.PartInfo{}, err
 	}
 	l.RLock()
-	udir, _, err := loadUpload(dir, key, uploadID)
+	err = b.withUpload(bucket, key, uploadID, func(string, string, uploadRecord) error { return nil })
 	l.RUnlock()
 	if err != nil {
 		return storage.PartInfo{}, err
 	}
-	st, err := stage(ctx, udir, r)
+	// Body errors come from the caller's reader and are returned untouched.
+	st, err := stage(ctx, b.tmpPath(), r)
 	if err != nil {
-		return storage.PartInfo{}, noUpload(err)
+		return storage.PartInfo{}, err
 	}
 	defer removeQuiet(st.path)
 	info := storage.PartInfo{PartNumber: partNumber, ETag: st.etag, Size: st.size, LastModified: time.Now().UTC()}
-	metaTmp, err := writeJSONTemp(udir, partRecord{ETag: info.ETag, Size: info.Size, LastModified: info.LastModified})
+	metaTmp, err := writeJSONTemp(b.tmpPath(), partRecord{ETag: info.ETag, Size: info.Size, LastModified: info.LastModified})
 	if err != nil {
-		return storage.PartInfo{}, noUpload(err)
+		return storage.PartInfo{}, err
 	}
 	defer removeQuiet(metaTmp)
 
 	l.Lock()
 	defer l.Unlock()
-	if err := os.Rename(st.path, filepath.Join(udir, partName(partNumber))); err != nil {
-		return storage.PartInfo{}, noUpload(err)
-	}
-	if err := os.Rename(metaTmp, filepath.Join(udir, partName(partNumber)+metaSuffix)); err != nil {
-		return storage.PartInfo{}, noUpload(err)
+	err = b.withUpload(bucket, key, uploadID, func(_, udir string, _ uploadRecord) error {
+		if err := os.Rename(st.path, filepath.Join(udir, partName(partNumber))); err != nil {
+			return noUpload(err)
+		}
+		return noUpload(os.Rename(metaTmp, filepath.Join(udir, partName(partNumber)+metaSuffix)))
+	})
+	if err != nil {
+		return storage.PartInfo{}, err
 	}
 	return info, nil
 }
@@ -184,10 +204,7 @@ func (b *Backend) CompleteMultipartUpload(ctx context.Context, bucket, key, uplo
 	if err := ctx.Err(); err != nil {
 		return storage.ObjectInfo{}, err
 	}
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	dir, err := b.bucketDir(bucket)
-	if err != nil {
+	if err := b.requireBucket(bucket); err != nil {
 		return storage.ObjectInfo{}, err
 	}
 	l, err := b.uploadLock(bucket, uploadID)
@@ -196,11 +213,17 @@ func (b *Backend) CompleteMultipartUpload(ctx context.Context, bucket, key, uplo
 	}
 	l.Lock()
 	defer l.Unlock()
-	udir, rec, err := loadUpload(dir, key, uploadID)
-	if err != nil {
-		return storage.ObjectInfo{}, err
-	}
-	uploaded, err := readParts(udir)
+	var (
+		udir     string
+		rec      uploadRecord
+		uploaded map[int]storage.PartInfo
+	)
+	err = b.withUpload(bucket, key, uploadID, func(_, d string, r uploadRecord) error {
+		udir, rec = d, r
+		var err error
+		uploaded, err = readParts(d)
+		return err
+	})
 	if err != nil {
 		return storage.ObjectInfo{}, err
 	}
@@ -219,7 +242,7 @@ func (b *Backend) CompleteMultipartUpload(ctx context.Context, bucket, key, uplo
 	}
 	pr := &partsReader{paths: paths}
 	defer pr.close()
-	st, err := stage(ctx, filepath.Join(dir, tmpDir), pr)
+	st, err := stage(ctx, b.tmpPath(), pr)
 	if err != nil {
 		return storage.ObjectInfo{}, err
 	}
@@ -233,10 +256,19 @@ func (b *Backend) CompleteMultipartUpload(ctx context.Context, bucket, key, uplo
 		Meta:         rec.Meta,
 		PartsCount:   len(parts),
 	}
-	if err := b.commit(dir, info, st.path); err != nil {
+	uploadStillThere := func(string) error {
+		return noUpload(statErr(filepath.Join(udir, uploadFile)))
+	}
+	if err := b.commit(info, st.path, uploadStillThere); err != nil {
 		return storage.ObjectInfo{}, err
 	}
-	return info, os.RemoveAll(udir)
+	_ = os.RemoveAll(udir)
+	return info, nil
+}
+
+func statErr(path string) error {
+	_, err := os.Stat(path)
+	return err
 }
 
 // partsReader reads files back to back, one open at a time.
@@ -280,10 +312,7 @@ func (b *Backend) AbortMultipartUpload(ctx context.Context, bucket, key, uploadI
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	dir, err := b.bucketDir(bucket)
-	if err != nil {
+	if err := b.requireBucket(bucket); err != nil {
 		return err
 	}
 	l, err := b.uploadLock(bucket, uploadID)
@@ -292,21 +321,16 @@ func (b *Backend) AbortMultipartUpload(ctx context.Context, bucket, key, uploadI
 	}
 	l.Lock()
 	defer l.Unlock()
-	udir, _, err := loadUpload(dir, key, uploadID)
-	if err != nil {
-		return err
-	}
-	return os.RemoveAll(udir)
+	return b.withUpload(bucket, key, uploadID, func(_, udir string, _ uploadRecord) error {
+		return os.RemoveAll(udir)
+	})
 }
 
 func (b *Backend) ListParts(ctx context.Context, bucket, key, uploadID string, opts storage.ListPartsOptions) (storage.ListPartsResult, error) {
 	if err := ctx.Err(); err != nil {
 		return storage.ListPartsResult{}, err
 	}
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	dir, err := b.bucketDir(bucket)
-	if err != nil {
+	if err := b.requireBucket(bucket); err != nil {
 		return storage.ListPartsResult{}, err
 	}
 	l, err := b.uploadLock(bucket, uploadID)
@@ -315,11 +339,12 @@ func (b *Backend) ListParts(ctx context.Context, bucket, key, uploadID string, o
 	}
 	l.RLock()
 	defer l.RUnlock()
-	udir, _, err := loadUpload(dir, key, uploadID)
-	if err != nil {
-		return storage.ListPartsResult{}, err
-	}
-	uploaded, err := readParts(udir)
+	var uploaded map[int]storage.PartInfo
+	err = b.withUpload(bucket, key, uploadID, func(_, udir string, _ uploadRecord) error {
+		var err error
+		uploaded, err = readParts(udir)
+		return err
+	})
 	if err != nil {
 		return storage.ListPartsResult{}, err
 	}

@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -15,13 +16,21 @@ import (
 	"github.com/LeoMachado94/s3lab/internal/storage"
 )
 
-// objectPaths maps a key to its data and metadata files via SHA-256, so no key
-// can traverse, collide or hit reserved names.
-func objectPaths(bucketDir, key string) (data, meta string) {
+// objectRecord is the metadata file: the object info plus the data file of the
+// published version.
+type objectRecord struct {
+	storage.ObjectInfo
+	DataFile string
+}
+
+// keyHash maps a key to its SHA-256, so no key can traverse, collide or hit reserved names.
+func keyHash(key string) string {
 	sum := sha256.Sum256([]byte(key))
-	h := hex.EncodeToString(sum[:])
-	base := filepath.Join(bucketDir, objectsDir, h[:hashDirLen], h)
-	return base + dataSuffix, base + metaSuffix
+	return hex.EncodeToString(sum[:])
+}
+
+func shardDir(bucketDir, hash string) string {
+	return filepath.Join(bucketDir, objectsDir, hash[:hashDirLen])
 }
 
 func objectLockName(bucket, key string) string { return bucket + "/" + key }
@@ -30,21 +39,18 @@ func (b *Backend) PutObject(ctx context.Context, bucket, key string, r io.Reader
 	if err := ctx.Err(); err != nil {
 		return storage.ObjectInfo{}, err
 	}
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	dir, err := b.bucketDir(bucket)
-	if err != nil {
+	if err := b.requireBucket(bucket); err != nil {
 		return storage.ObjectInfo{}, err
 	}
 	if err := storage.ValidateKey(key); err != nil {
 		return storage.ObjectInfo{}, err
 	}
-	return b.store(ctx, dir, bucket, key, r, opts.Meta)
+	return b.store(ctx, bucket, key, r, opts.Meta)
 }
 
-// store stages r and commits it as bucket/key.
-func (b *Backend) store(ctx context.Context, dir, bucket, key string, r io.Reader, meta storage.ObjectMeta) (storage.ObjectInfo, error) {
-	st, err := stage(ctx, filepath.Join(dir, tmpDir), r)
+// store stages r without holding any backend lock and commits it as bucket/key.
+func (b *Backend) store(ctx context.Context, bucket, key string, r io.Reader, meta storage.ObjectMeta) (storage.ObjectInfo, error) {
+	st, err := stage(ctx, b.tmpPath(), r)
 	if err != nil {
 		return storage.ObjectInfo{}, err
 	}
@@ -57,51 +63,83 @@ func (b *Backend) store(ctx context.Context, dir, bucket, key string, r io.Reade
 		LastModified: time.Now().UTC(),
 		Meta:         meta,
 	}
-	if err := b.commit(dir, info, st.path); err != nil {
+	if err := b.commit(info, st.path, nil); err != nil {
 		return storage.ObjectInfo{}, err
 	}
 	return info, nil
 }
 
-// commit atomically publishes the staged body and its metadata under the key lock.
-func (b *Backend) commit(dir string, info storage.ObjectInfo, dataTmp string) error {
-	metaTmp, err := writeJSONTemp(filepath.Join(dir, tmpDir), info)
+// commit publishes the staged body under a fresh data file name and then swaps
+// the metadata in with one rename. check, if set, runs under the bucket lock
+// before anything is published.
+func (b *Backend) commit(info storage.ObjectInfo, dataTmp string, check func(bucketDir string) error) error {
+	hash := keyHash(info.Key)
+	var rnd [8]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return err
+	}
+	dataName := hash + "." + hex.EncodeToString(rnd[:]) + dataSuffix
+	metaTmp, err := writeJSONTemp(b.tmpPath(), objectRecord{ObjectInfo: info, DataFile: dataName})
 	if err != nil {
 		return err
 	}
 	defer removeQuiet(metaTmp)
-	dataPath, metaPath := objectPaths(dir, info.Key)
-	if err := os.MkdirAll(filepath.Dir(dataPath), dirPerm); err != nil {
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	dir, err := b.bucketDir(info.Bucket)
+	if err != nil {
 		return err
 	}
+	if check != nil {
+		if err := check(dir); err != nil {
+			return err
+		}
+	}
+	shard := shardDir(dir, hash)
+	if err := os.MkdirAll(shard, dirPerm); err != nil {
+		return err
+	}
+	metaPath := filepath.Join(shard, hash+metaSuffix)
+	dataPath := filepath.Join(shard, dataName)
 	l := b.keyLock(objectLockName(info.Bucket, info.Key))
 	l.Lock()
 	defer l.Unlock()
+	var prev objectRecord
+	prevErr := readJSON(metaPath, &prev)
 	if err := os.Rename(dataTmp, dataPath); err != nil {
 		return err
 	}
-	return os.Rename(metaTmp, metaPath)
+	if err := os.Rename(metaTmp, metaPath); err != nil {
+		removeQuiet(dataPath)
+		return err
+	}
+	if prevErr == nil && prev.DataFile != "" {
+		removeQuiet(filepath.Join(shard, filepath.Base(prev.DataFile)))
+	}
+	return nil
 }
 
 // openObject returns the open body and metadata; the file stays valid even if
-// the key is overwritten afterwards.
+// the key is overwritten afterwards. Callers hold b.mu shared.
 func (b *Backend) openObject(dir, bucket, key string) (*os.File, storage.ObjectInfo, error) {
 	if err := storage.ValidateKey(key); err != nil {
 		return nil, storage.ObjectInfo{}, err
 	}
-	dataPath, metaPath := objectPaths(dir, key)
+	hash := keyHash(key)
+	shard := shardDir(dir, hash)
 	l := b.keyLock(objectLockName(bucket, key))
 	l.RLock()
 	defer l.RUnlock()
-	var info storage.ObjectInfo
-	if err := readJSON(metaPath, &info); err != nil {
+	var rec objectRecord
+	if err := readJSON(filepath.Join(shard, hash+metaSuffix), &rec); err != nil {
 		return nil, storage.ObjectInfo{}, missingKey(err)
 	}
-	f, err := os.Open(dataPath)
+	f, err := os.Open(filepath.Join(shard, filepath.Base(rec.DataFile)))
 	if err != nil {
 		return nil, storage.ObjectInfo{}, missingKey(err)
 	}
-	return f, info, nil
+	return f, rec.ObjectInfo, nil
 }
 
 func missingKey(err error) error {
@@ -154,15 +192,15 @@ func (b *Backend) HeadObject(ctx context.Context, bucket, key string) (storage.O
 	if err := storage.ValidateKey(key); err != nil {
 		return storage.ObjectInfo{}, err
 	}
-	_, metaPath := objectPaths(dir, key)
+	hash := keyHash(key)
 	l := b.keyLock(objectLockName(bucket, key))
 	l.RLock()
 	defer l.RUnlock()
-	var info storage.ObjectInfo
-	if err := readJSON(metaPath, &info); err != nil {
+	var rec objectRecord
+	if err := readJSON(filepath.Join(shardDir(dir, hash), hash+metaSuffix), &rec); err != nil {
 		return storage.ObjectInfo{}, missingKey(err)
 	}
-	return info, nil
+	return rec.ObjectInfo, nil
 }
 
 func (b *Backend) DeleteObject(ctx context.Context, bucket, key string) error {
@@ -178,15 +216,20 @@ func (b *Backend) DeleteObject(ctx context.Context, bucket, key string) error {
 	if err := storage.ValidateKey(key); err != nil {
 		return err
 	}
-	dataPath, metaPath := objectPaths(dir, key)
+	hash := keyHash(key)
+	shard := shardDir(dir, hash)
+	metaPath := filepath.Join(shard, hash+metaSuffix)
 	l := b.keyLock(objectLockName(bucket, key))
 	l.Lock()
 	defer l.Unlock()
+	var rec objectRecord
+	_ = readJSON(metaPath, &rec)
 	// Metadata first: without it the object is already invisible.
-	for _, p := range []string{metaPath, dataPath} {
-		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
+	if err := os.Remove(metaPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if rec.DataFile != "" {
+		removeQuiet(filepath.Join(shard, filepath.Base(rec.DataFile)))
 	}
 	return nil
 }
@@ -195,20 +238,7 @@ func (b *Backend) CopyObject(ctx context.Context, src, dst storage.ObjectRef, op
 	if err := ctx.Err(); err != nil {
 		return storage.ObjectInfo{}, err
 	}
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	srcDir, err := b.bucketDir(src.Bucket)
-	if err != nil {
-		return storage.ObjectInfo{}, err
-	}
-	dstDir, err := b.bucketDir(dst.Bucket)
-	if err != nil {
-		return storage.ObjectInfo{}, err
-	}
-	if err := storage.ValidateKey(dst.Key); err != nil {
-		return storage.ObjectInfo{}, err
-	}
-	f, sinfo, err := b.openObject(srcDir, src.Bucket, src.Key)
+	f, sinfo, err := b.openCopySource(src, dst)
 	if err != nil {
 		return storage.ObjectInfo{}, err
 	}
@@ -226,7 +256,23 @@ func (b *Backend) CopyObject(ctx context.Context, src, dst storage.ObjectRef, op
 	if opts.ReplaceMeta {
 		meta = opts.Meta
 	}
-	return b.store(ctx, dstDir, dst.Bucket, dst.Key, body, meta)
+	return b.store(ctx, dst.Bucket, dst.Key, body, meta)
+}
+
+func (b *Backend) openCopySource(src, dst storage.ObjectRef) (*os.File, storage.ObjectInfo, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	srcDir, err := b.bucketDir(src.Bucket)
+	if err != nil {
+		return nil, storage.ObjectInfo{}, err
+	}
+	if _, err := b.bucketDir(dst.Bucket); err != nil {
+		return nil, storage.ObjectInfo{}, err
+	}
+	if err := storage.ValidateKey(dst.Key); err != nil {
+		return nil, storage.ObjectInfo{}, err
+	}
+	return b.openObject(srcDir, src.Bucket, src.Key)
 }
 
 func (b *Backend) ListObjects(ctx context.Context, bucket string, opts storage.ListOptions) (storage.ListResult, error) {
@@ -259,14 +305,14 @@ func collectObjects(ctx context.Context, dir string) ([]storage.ObjectInfo, erro
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		var info storage.ObjectInfo
-		if err := readJSON(path, &info); err != nil {
+		var rec objectRecord
+		if err := readJSON(path, &rec); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return nil // deleted while walking
 			}
 			return err
 		}
-		objs = append(objs, info)
+		objs = append(objs, rec.ObjectInfo)
 		return nil
 	})
 	return objs, err

@@ -110,9 +110,9 @@ func TestInvalidUploadIDs(t *testing.T) {
 	}
 }
 
-func tmpEntries(t *testing.T, b *Backend, bucket string) []os.DirEntry {
+func tmpEntries(t *testing.T, b *Backend) []os.DirEntry {
 	t.Helper()
-	entries, err := os.ReadDir(filepath.Join(b.root, bucketsDir, bucket, tmpDir))
+	entries, err := os.ReadDir(b.tmpPath())
 	require.NoError(t, err)
 	return entries
 }
@@ -140,12 +140,12 @@ func TestCancelAndErrorCleanTempFiles(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	_, err := b.PutObject(ctx, "bkt", "k", &cancelAfterFirstRead{cancel: cancel, data: strings.NewReader("abcdef")}, storage.PutOptions{})
 	assert.ErrorIs(t, err, context.Canceled)
-	assert.Empty(t, tmpEntries(t, b, "bkt"))
+	assert.Empty(t, tmpEntries(t, b))
 
 	boom := errors.New("boom")
 	_, err = b.PutObject(context.Background(), "bkt", "k", io.MultiReader(strings.NewReader("ab"), failingReader{boom}), storage.PutOptions{})
 	assert.ErrorIs(t, err, boom)
-	assert.Empty(t, tmpEntries(t, b, "bkt"))
+	assert.Empty(t, tmpEntries(t, b))
 	_, err = b.HeadObject(context.Background(), "bkt", "k")
 	assert.ErrorIs(t, err, storage.ErrNoSuchKey)
 
@@ -172,7 +172,7 @@ func TestCompleteCanceledKeepsUpload(t *testing.T) {
 	cancel()
 	_, err = b.CompleteMultipartUpload(ctx, "bkt", "mp", id, []storage.CompletePart{{PartNumber: 1, ETag: p.ETag}})
 	assert.ErrorIs(t, err, context.Canceled)
-	assert.Empty(t, tmpEntries(t, b, "bkt"))
+	assert.Empty(t, tmpEntries(t, b))
 
 	_, err = b.CompleteMultipartUpload(bg, "bkt", "mp", id, []storage.CompletePart{{PartNumber: 1, ETag: p.ETag}})
 	assert.NoError(t, err)
