@@ -133,7 +133,7 @@ export function mount(root) {
       fail(ex);
     }
     if (mine !== seq) return;
-    es = new EventSource(api.streamUrl(fl));
+    es = new EventSource(api.streamUrl({ ...fl, since: maxId }));
     es.addEventListener('open', () => setLive('live', 'ok'));
     es.addEventListener('error', () => setLive('reconnecting', 'bad'));
     es.addEventListener('request', (ev) => {
