@@ -181,11 +181,11 @@ func recoverer(log *slog.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				rec := recover()
-				if rec == nil || rec == http.ErrAbortHandler {
-					if rec != nil {
-						panic(rec)
-					}
+				if rec == nil {
 					return
+				}
+				if err, ok := rec.(error); ok && errors.Is(err, http.ErrAbortHandler) {
+					panic(rec)
 				}
 				log.Error("panic serving request", "method", r.Method, "path", r.URL.Path,
 					"panic", fmt.Sprint(rec), "stack", string(debug.Stack()))
