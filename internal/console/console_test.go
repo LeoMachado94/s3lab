@@ -60,6 +60,7 @@ func (e *env) do(method, target, body string, hdr ...string) resp {
 		rd = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, target, rd)
+	req.Host = "localhost:9001"
 	for i := 0; i+1 < len(hdr); i += 2 {
 		req.Header.Set(hdr[i], hdr[i+1])
 	}
@@ -473,8 +474,7 @@ func TestCrossOrigin(t *testing.T) {
 	require.Equal(t, 403, e.do("POST", "/_s3lab/buckets", body, "Origin", "null").Code)
 	require.Equal(t, 403, e.do("DELETE", "/_s3lab/requests", "", "Origin", "http://localhost:9001x").Code)
 
-	// httptest requests use Host example.com
-	require.Equal(t, 201, e.do("POST", "/_s3lab/buckets", body, "Origin", "http://example.com").Code)
+	require.Equal(t, 201, e.do("POST", "/_s3lab/buckets", body, "Origin", "http://localhost:9001").Code)
 	require.Equal(t, 200, e.do("GET", "/_s3lab/buckets", "", "Origin", "http://evil.example").Code)
 	require.Equal(t, 204, e.do("DELETE", "/_s3lab/requests", "").Code)
 }
@@ -638,6 +638,7 @@ func TestStreamHandlerReturnsOnDisconnect(t *testing.T) {
 	e := newEnv(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest("GET", "/_s3lab/requests/stream", nil).WithContext(ctx)
+	req.Host = "localhost"
 	rec := httptest.NewRecorder()
 	finished := make(chan struct{})
 	go func() {
@@ -657,4 +658,110 @@ func TestContentDispositionHelpers(t *testing.T) {
 	require.Equal(t, `attachment; filename="a.txt"`, contentDisposition("attachment", "a.txt"))
 	require.Equal(t, `inline; filename="a_b"; filename*=UTF-8''a%01b`, contentDisposition("inline", "a\x01b"))
 	require.Equal(t, "a%25b", rfc5987("a%b"))
+}
+
+func TestHostGuard(t *testing.T) {
+	e := newEnv(t, func(d *Deps) { d.AllowedHosts = []string{"S3Lab.Example.com"} })
+	for host, want := range map[string]int{
+		"localhost:9001":       200,
+		"127.0.0.1":            200,
+		"[::1]:9001":           200,
+		"s3:9001":              200,
+		"app.localhost":        200,
+		"box.local":            200,
+		"svc.test":             200,
+		"db.internal":          200,
+		"host.docker.internal": 200,
+		"s3lab.example.com:80": 200,
+		"attacker.com":         403,
+		"attacker.com:9001":    403,
+		"localhost.evil.com":   403,
+	} {
+		req := httptest.NewRequest("GET", "/_s3lab/buckets", nil)
+		req.Host = host
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		require.Equal(t, want, rec.Code, host)
+		if want == 403 {
+			require.JSONEq(t, `{"error":{"code":"Forbidden","message":"host not allowed; set S3LAB_CONSOLE_ALLOWED_HOSTS"}}`, rec.Body.String())
+		}
+	}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "attacker.com"
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	require.Equal(t, 200, rec.Code)
+}
+
+func TestPutObjectTooLarge(t *testing.T) {
+	e := newEnv(t, func(d *Deps) { d.MaxObjectSize = 4 })
+	require.NoError(t, e.backend.CreateBucket(context.Background(), "bkt"))
+	require.Equal(t, 201, e.do("PUT", "/_s3lab/buckets/bkt/object?key=ok", "1234").Code)
+
+	r := e.do("PUT", "/_s3lab/buckets/bkt/object?key=big", "12345")
+	require.Equal(t, 413, r.Code)
+	require.Equal(t, "EntityTooLarge", r.errCode())
+
+	req := httptest.NewRequest("PUT", "/_s3lab/buckets/bkt/object?key=chunked", io.NopCloser(strings.NewReader("12345678")))
+	req.Host = "localhost"
+	require.Equal(t, int64(-1), req.ContentLength)
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	require.Equal(t, 413, rec.Code)
+	require.Contains(t, rec.Body.String(), "EntityTooLarge")
+}
+
+type notEmptyOnce struct {
+	storage.Backend
+	left  int
+	calls int
+}
+
+func (b *notEmptyOnce) DeleteBucket(ctx context.Context, name string) error {
+	b.calls++
+	if b.left > 0 {
+		b.left--
+		return storage.ErrBucketNotEmpty
+	}
+	return b.Backend.DeleteBucket(ctx, name)
+}
+
+func TestForceDeleteRetries(t *testing.T) {
+	var fb *notEmptyOnce
+	e := newEnv(t, func(d *Deps) {
+		fb = &notEmptyOnce{Backend: d.Backend, left: 2}
+		d.Backend = fb
+	})
+	require.NoError(t, e.backend.CreateBucket(context.Background(), "bkt"))
+	require.Equal(t, 204, e.do("DELETE", "/_s3lab/buckets/bkt?force=true", "").Code)
+	require.Equal(t, 3, fb.calls)
+
+	require.NoError(t, e.backend.CreateBucket(context.Background(), "ccc"))
+	fb.left, fb.calls = 5, 0
+	r := e.do("DELETE", "/_s3lab/buckets/ccc?force=true", "")
+	require.Equal(t, 409, r.Code)
+	require.Equal(t, 3, fb.calls)
+
+	fb.calls = 0
+	require.Equal(t, 409, e.do("DELETE", "/_s3lab/buckets/ccc", "").Code)
+	require.Equal(t, 1, fb.calls)
+}
+
+func TestStreamStopsOnDone(t *testing.T) {
+	done := make(chan struct{})
+	e := newEnv(t, func(d *Deps) { d.Done = done })
+	req := httptest.NewRequest("GET", "/_s3lab/requests/stream", nil)
+	req.Host = "localhost"
+	finished := make(chan struct{})
+	go func() {
+		e.h.ServeHTTP(httptest.NewRecorder(), req)
+		close(finished)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	close(done)
+	select {
+	case <-finished:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stream did not stop on Done")
+	}
 }

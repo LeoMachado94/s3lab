@@ -121,6 +121,8 @@ func (s *server) streamRequests(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.Done:
+			return
 		case e, ok := <-live:
 			if !ok {
 				return
@@ -178,6 +180,8 @@ func (s *server) clearFaults(w http.ResponseWriter, _ *http.Request) {
 func (s *server) reset(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	bucket := q.Get("bucket")
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.Backend.Reset(r.Context(), bucket); err != nil {
 		s.storageError(w, err)
 		return
@@ -191,7 +195,7 @@ func (s *server) reset(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			s.Logger.Error("console reseed failed", "err", err)
-			writeError(w, http.StatusInternalServerError, "InternalError", "reseed failed: "+err.Error())
+			writeError(w, http.StatusInternalServerError, "InternalError", "store was reset but seeding failed (partial): "+err.Error())
 			return
 		}
 	}
