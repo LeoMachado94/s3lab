@@ -1,0 +1,10 @@
+.git
+.github
+.claude
+bin
+dist
+data
+web/dev
+test/compat
+coverage.out
+*.test
