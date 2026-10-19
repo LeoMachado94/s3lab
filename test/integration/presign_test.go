@@ -40,8 +40,11 @@ func TestPresignedURLs(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		require.Equal(t, data, body)
 
-		log := h.waitRequests("bucket=pre", 2)
+		log := h.waitRequests("bucket=pre", 3)
 		for _, e := range log {
+			if e.Op == "CreateBucket" {
+				continue
+			}
 			require.Equal(t, "presigned", e.Auth, "%s", e.Op)
 			require.Equal(t, http.StatusOK, e.Status)
 			require.Contains(t, e.Query, "X-Amz-Signature=REDACTED")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/LeoMachado94/s3lab/internal/s3op"
 	"github.com/LeoMachado94/s3lab/internal/storage"
 )
 
@@ -23,6 +24,9 @@ func (b *backend) inject(ctx context.Context, method, bucket, key string) error 
 	rule, ok := b.eng.Match(TargetStorage, method, bucket, key)
 	if !ok {
 		return nil
+	}
+	if info := s3op.FromContext(ctx); info != nil {
+		info.FaultID = rule.ID
 	}
 	if !wait(ctx, rule.DelayMs) {
 		return ctx.Err()
