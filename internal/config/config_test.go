@@ -160,6 +160,10 @@ func TestValidationErrors(t *testing.T) {
 		{"faults not json", nil, map[string]string{"S3LAB_FAULTS": "{"}, "S3LAB_FAULTS"},
 		{"faults not array", nil, map[string]string{"S3LAB_FAULTS": `{"a":1}`}, "S3LAB_FAULTS"},
 		{"unknown flag", []string{"--nope"}, nil, "nope"},
+		{"empty access key", []string{"--access-key="}, nil, "S3LAB_ACCESS_KEY"},
+		{"empty secret key", []string{"--secret-key="}, nil, "S3LAB_SECRET_KEY"},
+		{"empty region", []string{"--region", " "}, nil, "region"},
+		{"log size too big", []string{"--request-log-size=100001"}, nil, "request-log-size"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -213,4 +217,57 @@ func TestExtraPositionalWarns(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "/a", cfg.DataDir)
 	assert.Len(t, cfg.Warnings, 2)
+}
+
+func TestAnonymousAllowsEmptyKeys(t *testing.T) {
+	cfg, err := LoadWithLookup([]string{"--anonymous", "--access-key=", "--secret-key="}, lookupFrom(nil))
+	require.NoError(t, err)
+	assert.True(t, cfg.Anonymous)
+}
+
+func TestLogSizeCap(t *testing.T) {
+	cfg, err := LoadWithLookup([]string{"--request-log-size=100000"}, lookupFrom(nil))
+	require.NoError(t, err)
+	assert.Equal(t, 100000, cfg.RequestLogSize)
+}
+
+func TestConsoleAllowedHosts(t *testing.T) {
+	cfg, err := LoadWithLookup(nil, lookupFrom(map[string]string{"S3LAB_CONSOLE_ALLOWED_HOSTS": "a.test, b.test"}))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a.test", "b.test"}, cfg.ConsoleAllowedHosts)
+
+	cfg, err = LoadWithLookup([]string{"--console-allowed-hosts", "c.test"}, lookupFrom(nil))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"c.test"}, cfg.ConsoleAllowedHosts)
+}
+
+func TestArgScanning(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		dataDir string
+		addr    string
+		console bool
+		anon    bool
+		warn    bool
+	}{
+		{"bool separate false", []string{"--console", "false", "/d"}, "/d", ":9000", false, false, false},
+		{"bool separate true", []string{"--anonymous", "true", "/d"}, "/d", ":9000", true, true, false},
+		{"bool no value keeps positional", []string{"--anonymous", "/d"}, "/d", ":9000", true, true, false},
+		{"positional before flags", []string{"/data", "--addr", ":9100"}, "/data", ":9100", true, false, false},
+		{"positional between flags", []string{"--anonymous", "/data", "--addr=:9100"}, "/data", ":9100", true, true, false},
+		{"minio value flags consumed", []string{"server", "--certs-dir", "/certs", "/data", "-S", "/s", "--config-dir", "/c", "-C", "/cc", "--ftp", "x", "--sftp", "y"}, "/data", ":9000", true, false, true},
+		{"minio positional before flags", []string{"server", "/data", "--address", ":9100"}, "/data", ":9100", true, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := LoadWithLookup(tt.args, lookupFrom(nil))
+			require.NoError(t, err)
+			assert.Equal(t, tt.dataDir, cfg.DataDir)
+			assert.Equal(t, tt.addr, cfg.Addr)
+			assert.Equal(t, tt.console, cfg.ConsoleEnabled)
+			assert.Equal(t, tt.anon, cfg.Anonymous)
+			assert.Equal(t, tt.warn, len(cfg.Warnings) > 0)
+		})
+	}
 }

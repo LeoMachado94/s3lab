@@ -15,6 +15,8 @@ import (
 	"github.com/LeoMachado94/s3lab/internal/storage"
 )
 
+const maxRequestLogSize = 100000
+
 type Storage string
 
 const (
@@ -36,13 +38,15 @@ type Config struct {
 	Buckets        []string
 	SeedDir        string
 	// FaultsJSON is the raw S3LAB_FAULTS value.
-	FaultsJSON     string
-	Domain         string
-	CORSOrigins    []string
-	MaxObjectSize  int64
-	RequestLogSize int
-	LogLevel       string
-	LogFormat      string
+	FaultsJSON  string
+	Domain      string
+	CORSOrigins []string
+	// ConsoleAllowedHosts extends the Host allowlist of the console.
+	ConsoleAllowedHosts []string
+	MaxObjectSize       int64
+	RequestLogSize      int
+	LogLevel            string
+	LogFormat           string
 	// Warnings collected while loading (e.g. ignored MinIO arguments).
 	Warnings []string
 }
@@ -125,6 +129,10 @@ func settings() []setting {
 		strSetting("S3LAB_DOMAIN", "domain", func(c *Config) *string { return &c.Domain }),
 		{env: "S3LAB_CORS_ORIGINS", flag: "cors-origins", apply: func(c *Config, v string) error {
 			c.CORSOrigins = splitList(v)
+			return nil
+		}},
+		{env: "S3LAB_CONSOLE_ALLOWED_HOSTS", flag: "console-allowed-hosts", apply: func(c *Config, v string) error {
+			c.ConsoleAllowedHosts = splitList(v)
 			return nil
 		}},
 		{env: "S3LAB_MAX_OBJECT_SIZE", flag: "max-object-size", apply: func(c *Config, v string) error {
@@ -248,9 +256,14 @@ func LoadWithLookup(args []string, lookup func(string) (string, bool)) (Config, 
 
 var minioIgnored = map[string]bool{"quiet": true, "json": true, "no-compat": true}
 
+// minioValueFlags are MinIO flags that take a separate value token.
+var minioValueFlags = map[string]bool{
+	"certs-dir": true, "S": true, "config-dir": true, "C": true, "ftp": true, "sftp": true,
+}
+
 // preScan separates s3lab flags from MinIO-style arguments: it drops a
 // leading "server", maps --address/--console-address and ignores unknown
-// MinIO flags, collecting positionals (the data dir).
+// MinIO flags, collecting positionals (the data dir) wherever they appear.
 func preScan(args []string, known map[string]setting) (flagArgs, positional, warnings []string) {
 	minio := len(args) > 0 && args[0] == "server"
 	if minio {
@@ -265,10 +278,6 @@ func preScan(args []string, known map[string]setting) (flagArgs, positional, war
 			break
 		}
 		if !strings.HasPrefix(a, "-") || a == "-" {
-			if !minio {
-				positional = append(positional, args[i:]...)
-				break
-			}
 			positional = append(positional, a)
 			continue
 		}
@@ -283,6 +292,13 @@ func preScan(args []string, known map[string]setting) (flagArgs, positional, war
 			case hasVal:
 				flagArgs = append(flagArgs, "--"+name+"="+val)
 			case st.bool:
+				if i+1 < len(args) {
+					if _, err := ParseBool(args[i+1]); err == nil {
+						i++
+						flagArgs = append(flagArgs, "--"+name+"="+args[i])
+						break
+					}
+				}
 				flagArgs = append(flagArgs, "--"+name)
 			case i+1 < len(args):
 				i++
@@ -292,6 +308,9 @@ func preScan(args []string, known map[string]setting) (flagArgs, positional, war
 			}
 		case minio || minioIgnored[name]:
 			warnings = append(warnings, "ignoring MinIO flag --"+name)
+			if minio && !hasVal && minioValueFlags[name] && i+1 < len(args) {
+				i++
+			}
 		default:
 			flagArgs = append(flagArgs, a)
 		}
@@ -342,8 +361,14 @@ func (c *Config) validate() error {
 	if c.MaxObjectSize <= 0 {
 		return errors.New("S3LAB_MAX_OBJECT_SIZE/--max-object-size: must be greater than zero")
 	}
-	if c.RequestLogSize <= 0 {
-		return errors.New("S3LAB_REQUEST_LOG_SIZE/--request-log-size: must be greater than zero")
+	if c.RequestLogSize <= 0 || c.RequestLogSize > maxRequestLogSize {
+		return fmt.Errorf("S3LAB_REQUEST_LOG_SIZE/--request-log-size: must be between 1 and %d", maxRequestLogSize)
+	}
+	if !c.Anonymous && (c.AccessKey == "" || c.SecretKey == "") {
+		return errors.New("S3LAB_ACCESS_KEY/S3LAB_SECRET_KEY: must not be empty unless anonymous access is enabled")
+	}
+	if strings.TrimSpace(c.Region) == "" {
+		return errors.New("S3LAB_REGION/--region: must not be empty")
 	}
 	if strings.TrimSpace(c.Addr) == "" {
 		return errors.New("S3LAB_ADDR/--addr: must not be empty")
